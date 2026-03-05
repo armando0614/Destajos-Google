@@ -1,0 +1,5 @@
+{
+  "name": "Sistema de Captura de Destajos",
+  "description": "Aplicación para la gestión y reporte de destajos de trabajadores, con resúmenes semanales y exportación a Excel.",
+  "requestFramePermissions": []
+}
