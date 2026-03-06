@@ -197,7 +197,7 @@ export default function App() {
   useEffect(() => {
     if (currentView === 'summary-destajista' && filterDestajista) {
       fetchCapturas({ destajista_id: filterDestajista });
-    } else if (currentView === 'summary-weekly' && filterSemana) {
+    } else if (currentView === 'summary-weekly') {
       fetchCapturas({ semana: filterSemana });
     } else if (currentView === 'delete-captures') {
       fetchCapturas({ semana: filterSemana, destajista_id: filterDestajista });
@@ -1189,6 +1189,7 @@ export default function App() {
               value={filterSemana}
               onChange={e => setFilterSemana(e.target.value)}
             >
+              <option value="">Todas las semanas</option>
               {weeks.map(w => <option key={w} value={w}>Semana {w}</option>)}
             </select>
           </FormField>
@@ -1382,6 +1383,7 @@ export default function App() {
                     setAiSummary(null);
                   }}
                 >
+                  <option value="">Todas las semanas</option>
                   {weeks.map(w => <option key={w} value={w}>Semana {w}</option>)}
                 </select>
                 <button className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors">
@@ -1517,6 +1519,7 @@ export default function App() {
                 value={exportSemana}
                 onChange={e => setExportSemana(e.target.value)}
               >
+                <option value="">Todas las semanas</option>
                 {weeks.map(w => <option key={w} value={w}>Semana {w}</option>)}
               </select>
             </FormField>
