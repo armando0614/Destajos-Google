@@ -611,16 +611,6 @@ async function startServer() {
     res.json({ success: true });
   });
 
-  // RUTA TEMPORAL PARA VERIFICAR DATOS
-  app.get("/api/debug/ver-capturas", (req, res) => {
-    try {
-      const todosLosDatos = db.prepare("SELECT * FROM capturas").all();
-      res.json(todosLosDatos);
-    } catch (error) {
-      res.status(500).json({ error: "Error al obtener datos" });
-    }
-  });
-
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
