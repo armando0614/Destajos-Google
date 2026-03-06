@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   LayoutDashboard, 
   FileText, 
@@ -114,16 +114,44 @@ export default function App() {
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
 
+  // Refs to keep track of current state for socket listeners
+  const currentViewRef = useRef(currentView);
+  const filterDestajistaRef = useRef(filterDestajista);
+  const filterSemanaRef = useRef(filterSemana);
+  const exportSemanaRef = useRef(exportSemana);
+  const exportDestajistaRef = useRef(exportDestajista);
+
+  useEffect(() => { currentViewRef.current = currentView; }, [currentView]);
+  useEffect(() => { filterDestajistaRef.current = filterDestajista; }, [filterDestajista]);
+  useEffect(() => { filterSemanaRef.current = filterSemana; }, [filterSemana]);
+  useEffect(() => { exportSemanaRef.current = exportSemana; }, [exportSemana]);
+  useEffect(() => { exportDestajistaRef.current = exportDestajista; }, [exportDestajista]);
+
   // Socket.io connection
   useEffect(() => {
-    const socket = io(window.location.origin);
+    const socket = io(window.location.origin, {
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      transports: ['websocket', 'polling']
+    });
 
     socket.on('connect', () => {
       console.log('Connected to real-time server');
     });
 
+    socket.on('connect_error', (error) => {
+      console.error('Socket connection error:', error);
+    });
+
     socket.on('data_changed', (data) => {
       console.log('Data changed:', data.type);
+      
+      const currentView = currentViewRef.current;
+      const filterDestajista = filterDestajistaRef.current;
+      const filterSemana = filterSemanaRef.current;
+      const exportSemana = exportSemanaRef.current;
+      const exportDestajista = exportDestajistaRef.current;
+
       // Refresh data based on what changed
       if (data.type === 'destajistas' || data.type === 'actividades' || data.type === 'ubicaciones') {
         fetchInitialData();
@@ -148,9 +176,11 @@ export default function App() {
     });
 
     return () => {
-      socket.disconnect();
+      if (socket.connected) {
+        socket.disconnect();
+      }
     };
-  }, [currentView, filterDestajista, filterSemana, exportSemana, exportDestajista]);
+  }, []); // Stable connection
 
   const weeks = Array.from({ length: 52 }, (_, i) => (i + 1).toString());
 
@@ -221,6 +251,11 @@ export default function App() {
         fetch('/api/actividades'),
         fetch('/api/ubicaciones')
       ]);
+      
+      if (!dRes.ok || !aRes.ok || !uRes.ok) {
+        throw new Error('Error al cargar datos iniciales');
+      }
+
       const dData = await dRes.json();
       const aData = await aRes.json();
       const uData = await uRes.json();
@@ -229,6 +264,7 @@ export default function App() {
       setUbicaciones(Array.isArray(uData) ? uData : []);
     } catch (error) {
       console.error('Error fetching initial data:', error);
+      showNotification('Error al cargar datos del servidor', 'error');
     } finally {
       setLoading(false);
     }
@@ -369,10 +405,14 @@ export default function App() {
       if (params.semana) query.append('semana', params.semana);
       if (params.destajista_id) query.append('destajista_id', params.destajista_id);
       const res = await fetch(`/api/capturas?${query.toString()}`);
+      if (!res.ok) {
+        throw new Error('Error al cargar capturas');
+      }
       const data = await res.json();
       setCapturas(data);
     } catch (error) {
       console.error('Error fetching capturas:', error);
+      showNotification('Error al cargar capturas del servidor', 'error');
     } finally {
       setLoading(false);
     }
@@ -1548,12 +1588,15 @@ export default function App() {
       {/* Header */}
       <header className="bg-white dark:bg-zinc-900 border-b border-gray-200 dark:border-zinc-800 px-6 py-4 flex justify-between items-center sticky top-0 z-10">
         <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentView('dashboard')}>
-          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white">
-            <LayoutDashboard size={24} />
+          <div className="w-10 h-10 bg-white dark:bg-zinc-800 rounded-xl flex items-center justify-center shadow-sm border border-gray-100 dark:border-zinc-700">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-black dark:text-white">
+              <path d="M12 2L3.5 7V17L12 22L20.5 17V7L12 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <rect x="9" y="9" width="6" height="6" fill="currentColor" transform="rotate(45 12 12)"/>
+            </svg>
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight dark:text-white">Sistema de Captura de Destajos</h1>
-            <p className="text-xs text-gray-500 dark:text-zinc-400">Bienvenido, Armando López Arrazola</p>
+            <p className="text-xs text-gray-500 dark:text-zinc-400">Bienvenido, Máquina de hacer destajos</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -1563,10 +1606,6 @@ export default function App() {
             title={theme === 'light' ? 'Cambiar a modo oscuro' : 'Cambiar a modo claro'}
           >
             {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
-          </button>
-          <button className="flex items-center gap-2 px-4 py-2 text-gray-600 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800 rounded-xl transition-colors border border-gray-200 dark:border-zinc-700 font-medium">
-            <LogOut size={18} />
-            Cerrar Sesion
           </button>
         </div>
       </header>

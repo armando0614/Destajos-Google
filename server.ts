@@ -5,6 +5,10 @@ import { Server } from "socket.io";
 import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
+import cookieSession from "cookie-session";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -41,11 +45,21 @@ db.exec(`
     lotes TEXT NOT NULL,
     semana INTEGER NOT NULL,
     cantidad INTEGER NOT NULL,
+    usuario_nombre TEXT,
+    usuario_avatar TEXT,
     fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (destajista_id) REFERENCES destajistas (id),
     FOREIGN KEY (actividad_id) REFERENCES actividades (id)
   );
 `);
+
+// Migration to add user columns if they don't exist
+try {
+  db.exec("ALTER TABLE capturas ADD COLUMN usuario_nombre TEXT");
+} catch (e) {}
+try {
+  db.exec("ALTER TABLE capturas ADD COLUMN usuario_avatar TEXT");
+} catch (e) {}
 
 // Seed initial data
 const seedData = () => {
@@ -222,6 +236,39 @@ async function startServer() {
   });
 
   app.use(express.json());
+  app.use(cookieSession({
+    name: 'session',
+    keys: [process.env.SESSION_SECRET || 'default-secret'],
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    secure: false, // Set to false for easier local dev/preview if not on https
+    sameSite: 'lax',
+    httpOnly: true
+  }));
+
+  // Auth Routes
+  app.post("/api/auth/login", (req, res) => {
+    const { name, avatar } = req.body;
+    if (!name || !avatar) {
+      return res.status(400).json({ error: "Nombre y avatar son requeridos" });
+    }
+    
+    if (req.session) {
+      req.session.user = {
+        name,
+        avatar
+      };
+    }
+    res.json({ success: true, user: req.session?.user });
+  });
+
+  app.get("/api/auth/me", (req, res) => {
+    res.json(req.session?.user || null);
+  });
+
+  app.post("/api/auth/logout", (req, res) => {
+    req.session = null;
+    res.json({ success: true });
+  });
 
   // Socket.io connection handling
   io.on("connection", (socket) => {
@@ -393,6 +440,7 @@ async function startServer() {
 
   app.post("/api/capturas", (req, res) => {
     const data = req.body;
+    const user = req.session?.user;
     
     try {
       const checkDuplicate = (destajista_id: number, actividad_id: number, paquete: string, manzana: string, lotes: string) => {
@@ -415,8 +463,8 @@ async function startServer() {
       };
 
       const insert = db.prepare(`
-        INSERT INTO capturas (destajista_id, actividad_id, paquete, manzana, lotes, semana, cantidad)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO capturas (destajista_id, actividad_id, paquete, manzana, lotes, semana, cantidad, usuario_nombre, usuario_avatar)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       if (Array.isArray(data)) {
@@ -441,7 +489,9 @@ async function startServer() {
               item.manzana, 
               item.lotes, 
               item.semana, 
-              item.cantidad
+              item.cantidad,
+              user?.name || 'Anónimo',
+              user?.avatar || '👤'
             );
           }
         });
@@ -456,7 +506,17 @@ async function startServer() {
           return res.status(400).json({ error: `El lote ${duplicateLote} ya fue pagado para esta actividad a este destajista.` });
         }
 
-        const info = insert.run(destajista_id, actividad_id, paquete, manzana, lotes, semana, cantidad);
+        const info = insert.run(
+          destajista_id, 
+          actividad_id, 
+          paquete, 
+          manzana, 
+          lotes, 
+          semana, 
+          cantidad,
+          user?.name || 'Anónimo',
+          user?.avatar || '👤'
+        );
         io.emit("data_changed", { type: "capturas" });
         res.json({ id: info.lastInsertRowid });
       }
