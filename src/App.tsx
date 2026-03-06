@@ -14,7 +14,8 @@ import {
   AlertCircle,
   Sun,
   Moon,
-  ArrowLeft
+  ArrowLeft,
+  User
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ExcelJS from 'exceljs';
@@ -916,7 +917,23 @@ export default function App() {
   };
 
   const handleEnterUserManagement = () => {
-    setCurrentView('manage-users');
+    if (user?.role === 'supervisor') {
+      setCurrentView('manage-users');
+    } else {
+      showNotification('Solicitando acceso de administrador...');
+      setShowAdminPassModal(true);
+      setAdminPassInput('');
+    }
+  };
+
+  const handleAdminPassSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (adminPassInput === 'rabito31') {
+      setShowAdminPassModal(false);
+      setCurrentView('manage-users');
+    } else {
+      showNotification('Contraseña incorrecta', 'error');
+    }
   };
 
   useEffect(() => {
@@ -1026,8 +1043,8 @@ export default function App() {
               {users.map(u => (
                 <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-zinc-800/50">
                   <td className="p-4 flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-zinc-700 flex items-center justify-center overflow-hidden">
-                      <User className="text-gray-500 dark:text-zinc-400 w-6 h-6 translate-y-1" />
+                    <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-zinc-700 flex items-center justify-center">
+                      <User className="text-gray-500 dark:text-zinc-400" size={16} />
                     </div>
                     <span className="text-sm font-medium dark:text-zinc-200">{u.username}</span>
                   </td>
@@ -1970,9 +1987,7 @@ export default function App() {
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 mr-4 bg-gray-50 dark:bg-zinc-800 px-3 py-1.5 rounded-xl border border-gray-100 dark:border-zinc-700">
-            <div className="w-6 h-6 rounded-full bg-gray-200 dark:bg-zinc-700 flex items-center justify-center overflow-hidden">
-              <User className="text-gray-500 dark:text-zinc-400 w-4 h-4 translate-y-0.5" />
-            </div>
+            <img src={user.avatar} alt={user.name} className="w-6 h-6 rounded-full" />
             <div className="flex flex-col items-start leading-none">
               <span className="text-sm font-medium dark:text-zinc-200">{user.name}</span>
               <span className={cn(
