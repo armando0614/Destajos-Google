@@ -4,6 +4,7 @@ import { createServer as createHttpServer } from "http";
 import { Server } from "socket.io";
 import Database from "better-sqlite3";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import cookieSession from "cookie-session";
 import dotenv from "dotenv";
@@ -13,7 +14,14 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const db = new Database("destajos.db");
+// Ensure data directory exists for persistent volumes
+const dbDir = process.env.NODE_ENV === "production" ? "/app/data" : __dirname;
+if (process.env.NODE_ENV === "production" && !fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
+
+const dbPath = path.join(dbDir, "destajos.db");
+const db = new Database(dbPath);
 
 // Initialize Database
 db.exec(`
