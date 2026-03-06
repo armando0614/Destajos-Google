@@ -59,6 +59,14 @@ db.exec(`
     FOREIGN KEY (destajista_id) REFERENCES destajistas (id),
     FOREIGN KEY (actividad_id) REFERENCES actividades (id)
   );
+
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password TEXT NOT NULL,
+    avatar TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 // Migration to add user columns if they don't exist
@@ -217,6 +225,10 @@ const seedData = () => {
   ];
   ubicacionesRaw.forEach(([p, m, l]) => insertUbicacion.run(p, m, l));
 
+  // Seed initial user
+  const insertUser = db.prepare("INSERT OR IGNORE INTO users (username, password, avatar) VALUES (?, ?, ?)");
+  insertUser.run("ArmandoL", "rabito31", "https://api.dicebear.com/7.x/avataaars/svg?seed=ArmandoL");
+
   // Add some sample captures if none exist
   const capturesCount = db.prepare("SELECT COUNT(*) as count FROM capturas").get() as { count: number };
   if (capturesCount.count === 0) {
@@ -255,18 +267,39 @@ async function startServer() {
 
   // Auth Routes
   app.post("/api/auth/login", (req, res) => {
-    const { name, avatar } = req.body;
-    if (!name || !avatar) {
-      return res.status(400).json({ error: "Nombre y avatar son requeridos" });
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: "Usuario y contraseña son requeridos" });
     }
     
+    const user = db.prepare("SELECT * FROM users WHERE username = ? AND password = ?").get(username, password) as any;
+    
+    if (!user) {
+      return res.status(401).json({ error: "Usuario o contraseña incorrectos" });
+    }
+
     if (req.session) {
       req.session.user = {
-        name,
-        avatar
+        name: user.username,
+        avatar: user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.username}`
       };
     }
     res.json({ success: true, user: req.session?.user });
+  });
+
+  app.post("/api/auth/register", (req, res) => {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: "Usuario y contraseña son requeridos" });
+    }
+
+    try {
+      const avatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`;
+      db.prepare("INSERT INTO users (username, password, avatar) VALUES (?, ?, ?)").run(username, password, avatar);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(400).json({ error: "El usuario ya existe" });
+    }
   });
 
   app.get("/api/auth/me", (req, res) => {

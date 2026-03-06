@@ -77,6 +77,9 @@ export default function App() {
   const [ubicaciones, setUbicaciones] = useState<Ubicacion[]>([]);
   const [capturas, setCapturas] = useState<Captura[]>([]);
   const [loading, setLoading] = useState(false);
+  const [user, setUser] = useState<{ name: string; avatar: string } | null>(null);
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [loginData, setLoginData] = useState({ username: '', password: '' });
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ id: number; type: 'captura' | 'destajista' | 'actividad' | 'ubicacion' } | null>(null);
 
@@ -185,40 +188,6 @@ export default function App() {
   const weeks = Array.from({ length: 52 }, (_, i) => (i + 1).toString());
 
   useEffect(() => {
-    fetchInitialData();
-  }, []);
-
-  useEffect(() => {
-    if (currentView === 'manage-data') {
-      fetchInitialData();
-    }
-  }, [currentView]);
-
-  useEffect(() => {
-    if (currentView === 'summary-destajista' && filterDestajista) {
-      fetchCapturas({ destajista_id: filterDestajista });
-    } else if (currentView === 'summary-weekly') {
-      fetchCapturas({ semana: filterSemana });
-    } else if (currentView === 'delete-captures') {
-      fetchCapturas({ semana: filterSemana, destajista_id: filterDestajista });
-    }
-  }, [currentView, filterDestajista, filterSemana]);
-
-  useEffect(() => {
-    if (currentView === 'export') {
-      const fetchPreview = async () => {
-        const url = exportDestajista 
-          ? `/api/capturas?semana=${exportSemana}&destajista_id=${exportDestajista}`
-          : `/api/capturas?semana=${exportSemana}`;
-        const res = await fetch(url);
-        const data = await res.json();
-        setPreviewData(data);
-      };
-      fetchPreview();
-    }
-  }, [currentView, exportSemana, exportDestajista]);
-
-  useEffect(() => {
     if (notification) {
       const timer = setTimeout(() => setNotification(null), 3000);
       return () => clearTimeout(timer);
@@ -268,6 +237,234 @@ export default function App() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchCapturas = async (params: { semana?: string; destajista_id?: string }) => {
+    setLoading(true);
+    try {
+      const query = new URLSearchParams();
+      if (params.semana) query.append('semana', params.semana);
+      if (params.destajista_id) query.append('destajista_id', params.destajista_id);
+      const res = await fetch(`/api/capturas?${query.toString()}`);
+      if (!res.ok) {
+        throw new Error('Error al cargar capturas');
+      }
+      const data = await res.json();
+      setCapturas(data);
+    } catch (error) {
+      console.error('Error fetching capturas:', error);
+      showNotification('Error al cargar capturas del servidor', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      fetchInitialData();
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (user && currentView === 'manage-data') {
+      fetchInitialData();
+    }
+  }, [currentView, user]);
+
+  useEffect(() => {
+    if (user) {
+      if (currentView === 'summary-destajista' && filterDestajista) {
+        fetchCapturas({ destajista_id: filterDestajista });
+      } else if (currentView === 'summary-weekly') {
+        fetchCapturas({ semana: filterSemana });
+      } else if (currentView === 'delete-captures') {
+        fetchCapturas({ semana: filterSemana, destajista_id: filterDestajista });
+      }
+    }
+  }, [currentView, filterDestajista, filterSemana, user]);
+
+  useEffect(() => {
+    if (user && currentView === 'export') {
+      const fetchPreview = async () => {
+        const url = exportDestajista 
+          ? `/api/capturas?semana=${exportSemana}&destajista_id=${exportDestajista}`
+          : `/api/capturas?semana=${exportSemana}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        setPreviewData(data);
+      };
+      fetchPreview();
+    }
+  }, [currentView, exportSemana, exportDestajista, user]);
+
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  const checkAuth = async () => {
+    try {
+      const res = await fetch('/api/auth/me');
+      const data = await res.json();
+      if (data) setUser(data);
+    } catch (e) {
+      console.error("Auth check failed", e);
+    }
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginData)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setUser(data.user);
+        setNotification({ message: 'Bienvenido de nuevo', type: 'success' });
+      } else {
+        setNotification({ message: data.error || 'Error al iniciar sesión', type: 'error' });
+      }
+    } catch (e) {
+      setNotification({ message: 'Error de conexión', type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginData)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setNotification({ message: 'Usuario registrado con éxito. Ya puedes iniciar sesión.', type: 'success' });
+        setIsRegistering(false);
+      } else {
+        setNotification({ message: data.error || 'Error al registrar usuario', type: 'error' });
+      }
+    } catch (e) {
+      setNotification({ message: 'Error de conexión', type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      setUser(null);
+      setCurrentView('dashboard');
+    } catch (e) {
+      console.error("Logout failed", e);
+    }
+  };
+
+  const renderLogin = () => {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden bg-gradient-to-br from-[#86b347] via-[#a3cc6b] to-[#c5e39e]">
+        {/* Wavy Background Elements */}
+        <div className="absolute inset-0 z-0 opacity-30">
+          <svg className="absolute bottom-0 left-0 w-full h-auto" viewBox="0 0 1440 320" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M0,192L48,197.3C96,203,192,213,288,229.3C384,245,480,267,576,250.7C672,235,768,181,864,181.3C960,181,1056,235,1152,234.7C1248,235,1344,181,1392,154.7L1440,128L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z" fill="#ffffff" />
+          </svg>
+          <svg className="absolute top-0 left-0 w-full h-auto rotate-180" viewBox="0 0 1440 320" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M0,192L48,197.3C96,203,192,213,288,229.3C384,245,480,267,576,250.7C672,235,768,181,864,181.3C960,181,1056,235,1152,234.7C1248,235,1344,181,1392,154.7L1440,128L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z" fill="#ffffff" />
+          </svg>
+        </div>
+
+        <div className="z-10 text-center mb-8">
+          <h1 className="text-3xl font-bold text-[#4a7c1a] tracking-widest mb-1">VIVE POMOCA S.A. DE C.V.</h1>
+          <p className="text-sm font-medium text-[#4a7c1a] opacity-80 tracking-[0.2em]">"REPORTE DE DESTAJOS"</p>
+        </div>
+
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-white rounded-[2rem] shadow-2xl p-10 w-full max-w-md z-10 mx-4"
+        >
+          <div className="flex flex-col items-center mb-8">
+            <div className="flex items-center gap-2 mb-6">
+              <div className="text-[#2b87e3] font-black text-4xl tracking-tighter flex items-baseline">
+                POM<span className="text-[#4a7c1a]">OCA</span>
+              </div>
+            </div>
+            <p className="text-xs text-gray-400 uppercase tracking-widest font-semibold">Poblaciones Modernas de Calidad</p>
+          </div>
+
+          <h2 className="text-xl font-bold text-gray-600 text-center mb-8">
+            {isRegistering ? 'Registrar nuevo usuario' : 'Iniciar sesión'}
+          </h2>
+
+          <form onSubmit={isRegistering ? handleRegister : handleLogin} className="space-y-4">
+            <div className="relative">
+              <input 
+                type="text"
+                placeholder="Usuario"
+                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-all text-gray-700"
+                value={loginData.username}
+                onChange={e => setLoginData({...loginData, username: e.target.value})}
+                required
+              />
+            </div>
+            <div className="relative">
+              <input 
+                type="password"
+                placeholder="Contraseña"
+                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-all text-gray-700"
+                value={loginData.password}
+                onChange={e => setLoginData({...loginData, password: e.target.value})}
+                required
+              />
+            </div>
+            <button 
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 bg-[#2b87e3] text-white font-bold rounded-lg hover:bg-blue-600 transition-all shadow-lg shadow-blue-200 disabled:opacity-50"
+            >
+              {loading ? 'Cargando...' : isRegistering ? 'Registrar' : 'Entrar'}
+            </button>
+          </form>
+
+          <div className="mt-6 text-center">
+            <button 
+              onClick={() => setIsRegistering(!isRegistering)}
+              className="text-sm text-blue-500 hover:underline font-medium"
+            >
+              {isRegistering ? 'Ya tengo cuenta, iniciar sesión' : 'Registrar nuevo usuario'}
+            </button>
+          </div>
+        </motion.div>
+
+        <div className="mt-12 z-10 text-[#4a7c1a] font-medium opacity-60">
+          ©2026
+        </div>
+
+        {/* Notification in Login */}
+        <AnimatePresence>
+          {notification && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className={cn(
+                "fixed bottom-8 px-6 py-3 rounded-xl shadow-xl font-medium z-50",
+                notification.type === 'success' ? "bg-emerald-600 text-white" : "bg-red-600 text-white"
+              )}
+            >
+              {notification.message}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
   };
 
   const handleSaveUbicacion = async (e: React.FormEvent) => {
@@ -395,26 +592,6 @@ export default function App() {
     } finally {
       setLoading(false);
       setConfirmDelete(null);
-    }
-  };
-
-  const fetchCapturas = async (params: { semana?: string; destajista_id?: string }) => {
-    setLoading(true);
-    try {
-      const query = new URLSearchParams();
-      if (params.semana) query.append('semana', params.semana);
-      if (params.destajista_id) query.append('destajista_id', params.destajista_id);
-      const res = await fetch(`/api/capturas?${query.toString()}`);
-      if (!res.ok) {
-        throw new Error('Error al cargar capturas');
-      }
-      const data = await res.json();
-      setCapturas(data);
-    } catch (error) {
-      console.error('Error fetching capturas:', error);
-      showNotification('Error al cargar capturas del servidor', 'error');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -1586,6 +1763,8 @@ export default function App() {
     );
   };
 
+  if (!user) return renderLogin();
+
   return (
     <div className="min-h-screen transition-colors duration-300">
       {/* Header */}
@@ -1599,10 +1778,20 @@ export default function App() {
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight dark:text-white">Sistema de Captura de Destajos</h1>
-            <p className="text-xs text-gray-500 dark:text-zinc-400">Bienvenido, Máquina de hacer destajos</p>
+            <div className="flex items-center gap-2">
+              <p className="text-xs text-gray-500 dark:text-zinc-400">Bienvenido, {user.name}</p>
+              <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
+              <button onClick={handleLogout} className="text-xs text-red-500 hover:underline flex items-center gap-1">
+                Cerrar sesión
+              </button>
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 mr-4 bg-gray-50 dark:bg-zinc-800 px-3 py-1.5 rounded-xl border border-gray-100 dark:border-zinc-700">
+            <img src={user.avatar} alt={user.name} className="w-6 h-6 rounded-full" />
+            <span className="text-sm font-medium dark:text-zinc-200">{user.name}</span>
+          </div>
           <button 
             onClick={toggleTheme}
             className="p-2 text-gray-600 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800 rounded-xl transition-colors border border-gray-200 dark:border-zinc-700"
