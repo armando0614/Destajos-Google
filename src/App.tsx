@@ -62,7 +62,7 @@ interface Ubicacion {
   lote: string;
 }
 
-type View = 'dashboard' | 'capture' | 'summary-destajista' | 'summary-weekly' | 'export' | 'manage-data' | 'delete-captures';
+type View = 'dashboard' | 'capture' | 'summary-destajista' | 'summary-weekly' | 'export' | 'manage-data' | 'delete-captures' | 'manage-users';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
@@ -76,12 +76,14 @@ export default function App() {
   const [actividades, setActividades] = useState<Actividad[]>([]);
   const [ubicaciones, setUbicaciones] = useState<Ubicacion[]>([]);
   const [capturas, setCapturas] = useState<Captura[]>([]);
+  const [users, setUsers] = useState<{id: number, username: string, avatar: string, created_at: string}[]>([]);
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState<{ name: string; avatar: string } | null>(null);
-  const [isRegistering, setIsRegistering] = useState(false);
   const [loginData, setLoginData] = useState({ username: '', password: '' });
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ id: number; type: 'captura' | 'destajista' | 'actividad' | 'ubicacion' } | null>(null);
+  const [showAdminPassModal, setShowAdminPassModal] = useState(false);
+  const [adminPassInput, setAdminPassInput] = useState('');
 
   // Form states
   const [formData, setFormData] = useState({
@@ -334,29 +336,6 @@ export default function App() {
     }
   };
 
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      const res = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(loginData)
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setNotification({ message: 'Usuario registrado con éxito. Ya puedes iniciar sesión.', type: 'success' });
-        setIsRegistering(false);
-      } else {
-        setNotification({ message: data.error || 'Error al registrar usuario', type: 'error' });
-      }
-    } catch (e) {
-      setNotification({ message: 'Error de conexión', type: 'error' });
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleLogout = async () => {
     try {
       await fetch('/api/auth/logout', { method: 'POST' });
@@ -400,10 +379,10 @@ export default function App() {
           </div>
 
           <h2 className="text-xl font-bold text-gray-600 text-center mb-8">
-            {isRegistering ? 'Registrar nuevo usuario' : 'Iniciar sesión'}
+            Iniciar sesión
           </h2>
 
-          <form onSubmit={isRegistering ? handleRegister : handleLogin} className="space-y-4">
+          <form onSubmit={handleLogin} className="space-y-4">
             <div className="relative">
               <input 
                 type="text"
@@ -429,18 +408,9 @@ export default function App() {
               disabled={loading}
               className="w-full py-3 bg-[#2b87e3] text-white font-bold rounded-lg hover:bg-blue-600 transition-all shadow-lg shadow-blue-200 disabled:opacity-50"
             >
-              {loading ? 'Cargando...' : isRegistering ? 'Registrar' : 'Entrar'}
+              {loading ? 'Cargando...' : 'Entrar'}
             </button>
           </form>
-
-          <div className="mt-6 text-center">
-            <button 
-              onClick={() => setIsRegistering(!isRegistering)}
-              className="text-sm text-blue-500 hover:underline font-medium"
-            >
-              {isRegistering ? 'Ya tengo cuenta, iniciar sesión' : 'Registrar nuevo usuario'}
-            </button>
-          </div>
         </motion.div>
 
         <div className="mt-12 z-10 text-[#4a7c1a] font-medium opacity-60">
@@ -910,6 +880,170 @@ export default function App() {
     }
   };
 
+  const fetchUsers = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/users');
+      if (!res.ok) throw new Error('Error al cargar usuarios');
+      const data = await res.json();
+      setUsers(data);
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      showNotification('Error al cargar usuarios', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteUser = async (id: number) => {
+    try {
+      setLoading(true);
+      const res = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        showNotification('Usuario eliminado');
+        fetchUsers();
+      } else {
+        showNotification('Error al eliminar usuario', 'error');
+      }
+    } catch (error) {
+      showNotification('Error de conexión', 'error');
+    } finally {
+      setLoading(false);
+      setConfirmDelete(null);
+    }
+  };
+
+  const handleEnterUserManagement = () => {
+    showNotification('Solicitando acceso de administrador...');
+    setShowAdminPassModal(true);
+    setAdminPassInput('');
+  };
+
+  const handleAdminPassSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (adminPassInput === 'rabito31') {
+      setShowAdminPassModal(false);
+      setCurrentView('manage-users');
+    } else {
+      showNotification('Contraseña incorrecta', 'error');
+    }
+  };
+
+  useEffect(() => {
+    if (user && currentView === 'manage-users') {
+      fetchUsers();
+    }
+  }, [currentView, user]);
+
+  const renderManageUsers = () => (
+    <div className="p-6 space-y-8 max-w-4xl mx-auto">
+      <div className="flex items-center gap-4 mb-4">
+        <button 
+          onClick={() => setCurrentView('dashboard')}
+          className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-md flex items-center justify-center"
+          title="Volver"
+        >
+          <ArrowLeft size={20} />
+        </button>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Gestión de Usuarios</h2>
+      </div>
+
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 p-8">
+        <h2 className="text-xl font-bold mb-6 flex items-center gap-2 dark:text-white">
+          <Plus className="text-blue-600 dark:text-blue-400" /> Registrar Nuevo Usuario
+        </h2>
+        <form onSubmit={async (e) => {
+          e.preventDefault();
+          setLoading(true);
+          try {
+            const res = await fetch('/api/auth/register', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(loginData)
+            });
+            const data = await res.json();
+            if (res.ok) {
+              showNotification('Usuario registrado con éxito');
+              setLoginData({ username: '', password: '' });
+              fetchUsers();
+            } else {
+              showNotification(data.error || 'Error al registrar usuario', 'error');
+            }
+          } catch (e) {
+            showNotification('Error de conexión', 'error');
+          } finally {
+            setLoading(false);
+          }
+        }} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <input 
+            required
+            type="text"
+            placeholder="Nombre de usuario"
+            className="p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
+            value={loginData.username}
+            onChange={e => setLoginData({...loginData, username: e.target.value})}
+          />
+          <input 
+            required
+            type="password"
+            placeholder="Contraseña"
+            className="p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
+            value={loginData.password}
+            onChange={e => setLoginData({...loginData, password: e.target.value})}
+          />
+          <button type="submit" className="py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors">
+            Registrar Usuario
+          </button>
+        </form>
+      </div>
+
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 overflow-hidden">
+        <div className="p-6 border-b border-gray-100 dark:border-zinc-800">
+          <h3 className="font-bold text-gray-900 dark:text-white">Usuarios Registrados</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-50 dark:bg-zinc-800/50">
+                <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Usuario</th>
+                <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Fecha Registro</th>
+                <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-zinc-800">
+              {users.map(u => (
+                <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-zinc-800/50">
+                  <td className="p-4 flex items-center gap-3">
+                    <img src={u.avatar} alt={u.username} className="w-8 h-8 rounded-full" />
+                    <span className="text-sm font-medium dark:text-zinc-200">{u.username}</span>
+                  </td>
+                  <td className="p-4 text-sm text-gray-500 dark:text-zinc-400">
+                    {new Date(u.created_at).toLocaleDateString()}
+                  </td>
+                  <td className="p-4 text-right">
+                    <button 
+                      onClick={() => {
+                        const pass = prompt('Ingresa la contraseña de administrador para eliminar este usuario:');
+                        if (pass === 'rabito31') {
+                          handleDeleteUser(u.id);
+                        } else if (pass !== null) {
+                          showNotification('Contraseña incorrecta', 'error');
+                        }
+                      }}
+                      className="text-red-600 dark:text-red-400 hover:underline text-sm font-medium"
+                    >
+                      Eliminar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+
   const renderDashboard = () => (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
       <DashboardCard 
@@ -947,6 +1081,12 @@ export default function App() {
         title="Configuración"
         description="Edita los datos maestros (Destajistas, Actividades, etc.)"
         onClick={() => setCurrentView('manage-data')}
+      />
+      <DashboardCard 
+        icon={<Users className="text-indigo-600 dark:text-indigo-400" />}
+        title="Usuarios"
+        description="Administra los usuarios que tienen acceso al sistema"
+        onClick={handleEnterUserManagement}
       />
     </div>
   );
@@ -1894,6 +2034,7 @@ export default function App() {
             {currentView === 'export' && renderExport()}
             {currentView === 'manage-data' && renderManageData()}
             {currentView === 'delete-captures' && renderDeleteCaptures()}
+            {currentView === 'manage-users' && renderManageUsers()}
           </motion.div>
         </AnimatePresence>
       </main>
@@ -1907,6 +2048,54 @@ export default function App() {
           <LayoutDashboard size={24} />
         </button>
       )}
+
+      {/* Admin Password Modal */}
+      <AnimatePresence>
+        {showAdminPassModal && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/40 dark:bg-black/60 backdrop-blur-sm">
+            <motion.div 
+              key="admin-pass-modal"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white dark:bg-zinc-900 rounded-2xl p-8 max-w-sm w-full shadow-2xl"
+            >
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
+                Acceso Restringido
+              </h3>
+              <p className="text-gray-500 dark:text-zinc-400 mb-6 text-sm">
+                Ingresa la contraseña de administrador para gestionar usuarios.
+              </p>
+              <form onSubmit={handleAdminPassSubmit} className="space-y-4">
+                <input 
+                  autoFocus
+                  required
+                  type="password"
+                  placeholder="Contraseña"
+                  className="w-full p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
+                  value={adminPassInput}
+                  onChange={e => setAdminPassInput(e.target.value)}
+                />
+                <div className="flex gap-3">
+                  <button 
+                    type="button"
+                    onClick={() => setShowAdminPassModal(false)}
+                    className="flex-1 py-3 bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-zinc-400 font-semibold rounded-xl hover:bg-gray-200 dark:hover:bg-zinc-700 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    type="submit"
+                    className="flex-1 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200 dark:shadow-none"
+                  >
+                    Entrar
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -1916,7 +2105,7 @@ function DashboardCard({ icon, title, description, onClick }: { icon: React.Reac
   return (
     <button 
       onClick={onClick}
-      className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-gray-100 dark:border-zinc-800 shadow-sm hover:shadow-xl dark:hover:shadow-zinc-900/50 hover:-translate-y-1 transition-all text-left flex flex-col h-full group"
+      className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-gray-100 dark:border-zinc-800 shadow-sm hover:shadow-xl dark:hover:shadow-zinc-900/50 hover:-translate-y-1 transition-all text-left flex flex-col h-full group cursor-pointer"
     >
       <div className="w-14 h-14 bg-gray-50 dark:bg-zinc-800 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
         {React.cloneElement(icon as React.ReactElement, { size: 28 })}

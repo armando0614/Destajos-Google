@@ -311,6 +311,23 @@ async function startServer() {
     res.json({ success: true });
   });
 
+  // User Management Routes
+  app.get("/api/users", (req, res) => {
+    const rows = db.prepare("SELECT id, username, avatar, created_at FROM users ORDER BY username").all();
+    res.json(rows);
+  });
+
+  app.delete("/api/users/:id", (req, res) => {
+    const id = req.params.id;
+    try {
+      // Don't allow deleting the last user or ArmandoL if possible, but let's keep it simple
+      db.prepare("DELETE FROM users WHERE id = ?").run(id);
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: "Error al eliminar el usuario" });
+    }
+  });
+
   // Socket.io connection handling
   io.on("connection", (socket) => {
     console.log("Client connected:", socket.id);
