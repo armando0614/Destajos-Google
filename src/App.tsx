@@ -1987,7 +1987,9 @@ export default function App() {
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 mr-4 bg-gray-50 dark:bg-zinc-800 px-3 py-1.5 rounded-xl border border-gray-100 dark:border-zinc-700">
-            <img src={user.avatar} alt={user.name} className="w-6 h-6 rounded-full" />
+            <div className="w-6 h-6 rounded-full bg-gray-200 dark:bg-zinc-700 flex items-center justify-center">
+              <User className="text-gray-500 dark:text-zinc-400" size={14} />
+            </div>
             <div className="flex flex-col items-start leading-none">
               <span className="text-sm font-medium dark:text-zinc-200">{user.name}</span>
               <span className={cn(
