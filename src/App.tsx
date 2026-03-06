@@ -76,12 +76,12 @@ export default function App() {
   const [actividades, setActividades] = useState<Actividad[]>([]);
   const [ubicaciones, setUbicaciones] = useState<Ubicacion[]>([]);
   const [capturas, setCapturas] = useState<Captura[]>([]);
-  const [users, setUsers] = useState<{id: number, username: string, avatar: string, created_at: string}[]>([]);
+  const [users, setUsers] = useState<{id: number, username: string, avatar: string, role: string, created_at: string}[]>([]);
   const [loading, setLoading] = useState(false);
-  const [user, setUser] = useState<{ name: string; avatar: string } | null>(null);
-  const [loginData, setLoginData] = useState({ username: '', password: '' });
+  const [user, setUser] = useState<{ name: string; avatar: string; role: string } | null>(null);
+  const [loginData, setLoginData] = useState({ username: '', password: '', role: 'capturista' });
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<{ id: number; type: 'captura' | 'destajista' | 'actividad' | 'ubicacion' } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: number; type: 'captura' | 'destajista' | 'actividad' | 'ubicacion' | 'user' } | null>(null);
   const [showAdminPassModal, setShowAdminPassModal] = useState(false);
   const [adminPassInput, setAdminPassInput] = useState('');
 
@@ -899,11 +899,13 @@ export default function App() {
     try {
       setLoading(true);
       const res = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      
       if (res.ok) {
         showNotification('Usuario eliminado');
         fetchUsers();
       } else {
-        showNotification('Error al eliminar usuario', 'error');
+        showNotification(data.error || 'Error al eliminar usuario', 'error');
       }
     } catch (error) {
       showNotification('Error de conexión', 'error');
@@ -914,19 +916,7 @@ export default function App() {
   };
 
   const handleEnterUserManagement = () => {
-    showNotification('Solicitando acceso de administrador...');
-    setShowAdminPassModal(true);
-    setAdminPassInput('');
-  };
-
-  const handleAdminPassSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (adminPassInput === 'rabito31') {
-      setShowAdminPassModal(false);
-      setCurrentView('manage-users');
-    } else {
-      showNotification('Contraseña incorrecta', 'error');
-    }
+    setCurrentView('manage-users');
   };
 
   useEffect(() => {
@@ -935,9 +925,21 @@ export default function App() {
     }
   }, [currentView, user]);
 
-  const renderManageUsers = () => (
-    <div className="p-6 space-y-8 max-w-4xl mx-auto">
-      <div className="flex items-center gap-4 mb-4">
+  const renderManageUsers = () => {
+    if (user?.role !== 'supervisor') {
+      return (
+        <div className="p-12 text-center">
+          <AlertCircle className="mx-auto text-red-500 mb-4" size={48} />
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Acceso Restringido</h2>
+          <p className="text-gray-500 dark:text-zinc-400 mb-6">Solo los supervisores pueden gestionar usuarios.</p>
+          <button onClick={() => setCurrentView('dashboard')} className="px-6 py-2 bg-blue-600 text-white rounded-lg">Volver al Inicio</button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="p-6 space-y-8 max-w-4xl mx-auto">
+        <div className="flex items-center gap-4 mb-4">
         <button 
           onClick={() => setCurrentView('dashboard')}
           className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-md flex items-center justify-center"
@@ -964,7 +966,7 @@ export default function App() {
             const data = await res.json();
             if (res.ok) {
               showNotification('Usuario registrado con éxito');
-              setLoginData({ username: '', password: '' });
+              setLoginData({ username: '', password: '', role: 'capturista' });
               fetchUsers();
             } else {
               showNotification(data.error || 'Error al registrar usuario', 'error');
@@ -974,7 +976,7 @@ export default function App() {
           } finally {
             setLoading(false);
           }
-        }} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        }} className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <input 
             required
             type="text"
@@ -991,6 +993,15 @@ export default function App() {
             value={loginData.password}
             onChange={e => setLoginData({...loginData, password: e.target.value})}
           />
+          <select 
+            required
+            className="p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
+            value={loginData.role}
+            onChange={e => setLoginData({...loginData, role: e.target.value})}
+          >
+            <option value="capturista">Capturista</option>
+            <option value="supervisor">Supervisor</option>
+          </select>
           <button type="submit" className="py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors">
             Registrar Usuario
           </button>
@@ -1006,6 +1017,7 @@ export default function App() {
             <thead>
               <tr className="bg-gray-50 dark:bg-zinc-800/50">
                 <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Usuario</th>
+                <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Rol</th>
                 <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Fecha Registro</th>
                 <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase text-right">Acciones</th>
               </tr>
@@ -1014,22 +1026,25 @@ export default function App() {
               {users.map(u => (
                 <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-zinc-800/50">
                   <td className="p-4 flex items-center gap-3">
-                    <img src={u.avatar} alt={u.username} className="w-8 h-8 rounded-full" />
+                    <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-zinc-700 flex items-center justify-center overflow-hidden">
+                      <User className="text-gray-500 dark:text-zinc-400 w-6 h-6 translate-y-1" />
+                    </div>
                     <span className="text-sm font-medium dark:text-zinc-200">{u.username}</span>
+                  </td>
+                  <td className="p-4">
+                    <span className={cn(
+                      "px-2 py-1 rounded-full text-[10px] font-bold uppercase",
+                      u.role === 'supervisor' ? "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400" : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                    )}>
+                      {u.role}
+                    </span>
                   </td>
                   <td className="p-4 text-sm text-gray-500 dark:text-zinc-400">
                     {new Date(u.created_at).toLocaleDateString()}
                   </td>
                   <td className="p-4 text-right">
                     <button 
-                      onClick={() => {
-                        const pass = prompt('Ingresa la contraseña de administrador para eliminar este usuario:');
-                        if (pass === 'rabito31') {
-                          handleDeleteUser(u.id);
-                        } else if (pass !== null) {
-                          showNotification('Contraseña incorrecta', 'error');
-                        }
-                      }}
+                      onClick={() => setConfirmDelete({ id: u.id, type: 'user' })}
                       className="text-red-600 dark:text-red-400 hover:underline text-sm font-medium"
                     >
                       Eliminar
@@ -1042,7 +1057,8 @@ export default function App() {
         </div>
       </div>
     </div>
-  );
+    );
+  };
 
   const renderDashboard = () => (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
@@ -1080,13 +1096,27 @@ export default function App() {
         icon={<Plus className="text-gray-600 dark:text-zinc-400" />}
         title="Configuración"
         description="Edita los datos maestros (Destajistas, Actividades, etc.)"
-        onClick={() => setCurrentView('manage-data')}
+        onClick={() => {
+          if (user?.role === 'supervisor') {
+            setCurrentView('manage-data');
+          } else {
+            showNotification('Acceso denegado. Se requiere perfil de Supervisor.', 'error');
+          }
+        }}
+        className={user?.role !== 'supervisor' ? "opacity-60" : ""}
       />
       <DashboardCard 
         icon={<Users className="text-indigo-600 dark:text-indigo-400" />}
         title="Usuarios"
         description="Administra los usuarios que tienen acceso al sistema"
-        onClick={handleEnterUserManagement}
+        onClick={() => {
+          if (user?.role === 'supervisor') {
+            handleEnterUserManagement();
+          } else {
+            showNotification('Acceso denegado. Se requiere perfil de Supervisor.', 'error');
+          }
+        }}
+        className={user?.role !== 'supervisor' ? "opacity-60" : ""}
       />
     </div>
   );
@@ -1306,6 +1336,17 @@ export default function App() {
   };
 
   const renderManageData = () => {
+    if (user?.role !== 'supervisor') {
+      return (
+        <div className="p-12 text-center">
+          <AlertCircle className="mx-auto text-red-500 mb-4" size={48} />
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Acceso Restringido</h2>
+          <p className="text-gray-500 dark:text-zinc-400 mb-6">Solo los supervisores pueden gestionar los datos maestros.</p>
+          <button onClick={() => setCurrentView('dashboard')} className="px-6 py-2 bg-blue-600 text-white rounded-lg">Volver al Inicio</button>
+        </div>
+      );
+    }
+
     return (
       <div className="p-6 space-y-8 max-w-5xl mx-auto">
         <div className="flex items-center gap-4 mb-4">
@@ -1929,8 +1970,18 @@ export default function App() {
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 mr-4 bg-gray-50 dark:bg-zinc-800 px-3 py-1.5 rounded-xl border border-gray-100 dark:border-zinc-700">
-            <img src={user.avatar} alt={user.name} className="w-6 h-6 rounded-full" />
-            <span className="text-sm font-medium dark:text-zinc-200">{user.name}</span>
+            <div className="w-6 h-6 rounded-full bg-gray-200 dark:bg-zinc-700 flex items-center justify-center overflow-hidden">
+              <User className="text-gray-500 dark:text-zinc-400 w-4 h-4 translate-y-0.5" />
+            </div>
+            <div className="flex flex-col items-start leading-none">
+              <span className="text-sm font-medium dark:text-zinc-200">{user.name}</span>
+              <span className={cn(
+                "text-[9px] font-bold uppercase mt-0.5",
+                user.role === 'supervisor' ? "text-purple-600 dark:text-purple-400" : "text-blue-600 dark:text-blue-400"
+              )}>
+                {user.role}
+              </span>
+            </div>
           </div>
           <button 
             onClick={toggleTheme}
@@ -1980,7 +2031,8 @@ export default function App() {
                   {confirmDelete.type === 'captura' ? '¿Eliminar captura?' : 
                    confirmDelete.type === 'destajista' ? '¿Eliminar destajista?' :
                    confirmDelete.type === 'actividad' ? '¿Eliminar actividad?' :
-                   '¿Eliminar ubicación?'}
+                   confirmDelete.type === 'ubicacion' ? '¿Eliminar ubicación?' :
+                   '¿Eliminar usuario?'}
                 </h3>
                 <p className="text-gray-500 dark:text-zinc-400 mb-6">
                   {confirmDelete.type === 'destajista' || confirmDelete.type === 'actividad' 
@@ -2000,6 +2052,7 @@ export default function App() {
                       else if (confirmDelete.type === 'destajista') handleDeleteDestajista(confirmDelete.id);
                       else if (confirmDelete.type === 'actividad') handleDeleteActividad(confirmDelete.id);
                       else if (confirmDelete.type === 'ubicacion') handleDeleteUbicacion(confirmDelete.id);
+                      else if (confirmDelete.type === 'user') handleDeleteUser(confirmDelete.id);
                     }}
                     className="flex-1 py-3 bg-red-600 text-white font-semibold rounded-xl hover:bg-red-700 transition-colors shadow-lg shadow-red-200 dark:shadow-none"
                   >
@@ -2101,11 +2154,14 @@ export default function App() {
 }
 
 // Sub-components
-function DashboardCard({ icon, title, description, onClick }: { icon: React.ReactNode, title: string, description: string, onClick: () => void }) {
+function DashboardCard({ icon, title, description, onClick, className }: { icon: React.ReactNode, title: string, description: string, onClick: () => void, className?: string }) {
   return (
     <button 
       onClick={onClick}
-      className="bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-gray-100 dark:border-zinc-800 shadow-sm hover:shadow-xl dark:hover:shadow-zinc-900/50 hover:-translate-y-1 transition-all text-left flex flex-col h-full group cursor-pointer"
+      className={cn(
+        "bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-gray-100 dark:border-zinc-800 shadow-sm hover:shadow-xl dark:hover:shadow-zinc-900/50 hover:-translate-y-1 transition-all text-left flex flex-col h-full group cursor-pointer",
+        className
+      )}
     >
       <div className="w-14 h-14 bg-gray-50 dark:bg-zinc-800 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
         {React.cloneElement(icon as React.ReactElement, { size: 28 })}

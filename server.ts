@@ -65,6 +65,7 @@ db.exec(`
     username TEXT NOT NULL UNIQUE,
     password TEXT NOT NULL,
     avatar TEXT,
+    role TEXT DEFAULT 'supervisor',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 `);
@@ -75,6 +76,9 @@ try {
 } catch (e) {}
 try {
   db.exec("ALTER TABLE capturas ADD COLUMN usuario_avatar TEXT");
+} catch (e) {}
+try {
+  db.exec("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'supervisor'");
 } catch (e) {}
 
 // Seed initial data
@@ -226,8 +230,8 @@ const seedData = () => {
   ubicacionesRaw.forEach(([p, m, l]) => insertUbicacion.run(p, m, l));
 
   // Seed initial user
-  const insertUser = db.prepare("INSERT OR IGNORE INTO users (username, password, avatar) VALUES (?, ?, ?)");
-  insertUser.run("ArmandoL", "rabito31", "https://api.dicebear.com/7.x/avataaars/svg?seed=ArmandoL");
+  const insertUser = db.prepare("INSERT OR IGNORE INTO users (username, password, avatar, role) VALUES (?, ?, ?, ?)");
+  insertUser.run("ArmandoL", "rabito31", "https://api.dicebear.com/7.x/avataaars/svg?seed=ArmandoL", "supervisor");
 
   // Add some sample captures if none exist
   const capturesCount = db.prepare("SELECT COUNT(*) as count FROM capturas").get() as { count: number };
@@ -281,21 +285,23 @@ async function startServer() {
     if (req.session) {
       req.session.user = {
         name: user.username,
-        avatar: user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.username}`
+        avatar: user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.username}`,
+        role: user.role || 'supervisor'
       };
     }
     res.json({ success: true, user: req.session?.user });
   });
 
   app.post("/api/auth/register", (req, res) => {
-    const { username, password } = req.body;
+    const { username, password, role } = req.body;
     if (!username || !password) {
       return res.status(400).json({ error: "Usuario y contraseña son requeridos" });
     }
 
     try {
       const avatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`;
-      db.prepare("INSERT INTO users (username, password, avatar) VALUES (?, ?, ?)").run(username, password, avatar);
+      const userRole = role || 'capturista';
+      db.prepare("INSERT INTO users (username, password, avatar, role) VALUES (?, ?, ?, ?)").run(username, password, avatar, userRole);
       res.json({ success: true });
     } catch (e) {
       res.status(400).json({ error: "El usuario ya existe" });
@@ -313,17 +319,32 @@ async function startServer() {
 
   // User Management Routes
   app.get("/api/users", (req, res) => {
-    const rows = db.prepare("SELECT id, username, avatar, created_at FROM users ORDER BY username").all();
+    const rows = db.prepare("SELECT id, username, avatar, role, created_at FROM users ORDER BY username").all();
     res.json(rows);
   });
 
   app.delete("/api/users/:id", (req, res) => {
     const id = req.params.id;
     try {
-      // Don't allow deleting the last user or ArmandoL if possible, but let's keep it simple
-      db.prepare("DELETE FROM users WHERE id = ?").run(id);
-      res.json({ success: true });
+      // Don't allow deleting ArmandoL
+      const userToDelete = db.prepare("SELECT username FROM users WHERE id = ?").get(id) as { username: string } | undefined;
+      
+      if (!userToDelete) {
+        return res.status(404).json({ error: "Usuario no encontrado" });
+      }
+
+      if (userToDelete.username === 'ArmandoL') {
+        return res.status(403).json({ error: "No se puede eliminar el usuario administrador principal" });
+      }
+
+      const result = db.prepare("DELETE FROM users WHERE id = ?").run(id);
+      if (result.changes > 0) {
+        res.json({ success: true });
+      } else {
+        res.status(404).json({ error: "No se pudo eliminar el usuario" });
+      }
     } catch (e) {
+      console.error("Error deleting user:", e);
       res.status(500).json({ error: "Error al eliminar el usuario" });
     }
   });
