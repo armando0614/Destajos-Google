@@ -2,7 +2,7 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import { createServer as createHttpServer } from "http";
 import { Server } from "socket.io";
-import mysql from "mysql2/promise";
+import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
@@ -14,136 +14,122 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Configuración de la base de datos para Railway
-// Prioriza la variable de entorno MYSQL_URL, de lo contrario usa la red interna de Railway
-const MYSQL_INTERNAL_URL = "mysql://root:ztnhZRvsWMfrONQwQqHYakTTAAYYLVxA@mysql.railway.internal:3306/railway";
-const mysqlUrl = process.env.MYSQL_URL || MYSQL_INTERNAL_URL;
+// Ensure data directory exists for persistent volumes
+let dbPath = process.env.DATABASE_PATH;
+let dbDir;
 
-console.log("Configurando conexión a base de datos...");
-if (mysqlUrl === MYSQL_INTERNAL_URL) {
-  console.log("📢 Usando configuración predeterminada para red interna de Railway.");
+if (process.env.RAILWAY_VOLUME_MOUNT_PATH) {
+  // Railway volume support
+  dbDir = process.env.RAILWAY_VOLUME_MOUNT_PATH;
+  dbPath = path.join(dbDir, "destajos.db");
+} else if (dbPath) {
+  // Custom path support
+  dbDir = path.dirname(dbPath);
+} else {
+  // Default local/container path
+  dbDir = process.env.NODE_ENV === "production" ? "/app/data" : __dirname;
+  dbPath = path.join(dbDir, "destajos.db");
 }
 
-const pool = mysql.createPool({
-  uri: mysqlUrl,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-  enableKeepAlive: true,
-  keepAliveInitialDelay: 0
-});
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
+
+const db = new Database(dbPath);
 
 // Initialize Database
-async function initDb() {
-  const connection = await pool.getConnection();
-  try {
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS destajistas (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        nombre VARCHAR(255) NOT NULL UNIQUE
-      )
-    `);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS destajistas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre TEXT NOT NULL UNIQUE
+  );
 
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS actividades (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        nombre VARCHAR(255) NOT NULL UNIQUE,
-        precio DECIMAL(10, 2) NOT NULL
-      )
-    `);
+  CREATE TABLE IF NOT EXISTS actividades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre TEXT NOT NULL UNIQUE,
+    precio REAL NOT NULL
+  );
 
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS ubicaciones (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        paquete VARCHAR(50) NOT NULL,
-        manzana VARCHAR(50) NOT NULL,
-        lote VARCHAR(50) NOT NULL,
-        UNIQUE(paquete, manzana, lote)
-      )
-    `);
+  CREATE TABLE IF NOT EXISTS ubicaciones (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    paquete TEXT NOT NULL,
+    manzana TEXT NOT NULL,
+    lote TEXT NOT NULL,
+    UNIQUE(paquete, manzana, lote)
+  );
 
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS capturas (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        destajista_id INT NOT NULL,
-        actividad_id INT NOT NULL,
-        paquete VARCHAR(50) NOT NULL,
-        manzana VARCHAR(50) NOT NULL,
-        lotes TEXT NOT NULL,
-        semana INT NOT NULL,
-        cantidad INT NOT NULL,
-        usuario_nombre VARCHAR(255),
-        usuario_avatar TEXT,
-        fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (destajista_id) REFERENCES destajistas (id),
-        FOREIGN KEY (actividad_id) REFERENCES actividades (id)
-      )
-    `);
+  CREATE TABLE IF NOT EXISTS capturas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    destajista_id INTEGER NOT NULL,
+    actividad_id INTEGER NOT NULL,
+    paquete TEXT NOT NULL,
+    manzana TEXT NOT NULL,
+    lotes TEXT NOT NULL,
+    semana INTEGER NOT NULL,
+    cantidad INTEGER NOT NULL,
+    usuario_nombre TEXT,
+    usuario_avatar TEXT,
+    fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (destajista_id) REFERENCES destajistas (id),
+    FOREIGN KEY (actividad_id) REFERENCES actividades (id)
+  );
 
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        username VARCHAR(255) NOT NULL UNIQUE,
-        password VARCHAR(255) NOT NULL,
-        avatar TEXT,
-        role VARCHAR(50) DEFAULT 'supervisor',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password TEXT NOT NULL,
+    avatar TEXT,
+    role TEXT DEFAULT 'supervisor',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`);
 
-    // Migration to add user columns if they don't exist
-    try {
-      await connection.query("ALTER TABLE capturas ADD COLUMN usuario_nombre VARCHAR(255)");
-    } catch (e) {}
-    try {
-      await connection.query("ALTER TABLE capturas ADD COLUMN usuario_avatar TEXT");
-    } catch (e) {}
-    try {
-      await connection.query("ALTER TABLE users ADD COLUMN role VARCHAR(50) DEFAULT 'supervisor'");
-    } catch (e) {}
-
-    await seedData(connection);
-  } catch (error) {
-    console.error("Database initialization error:", error);
-  } finally {
-    connection.release();
-  }
-}
+// Migration to add user columns if they don't exist
+try {
+  db.exec("ALTER TABLE capturas ADD COLUMN usuario_nombre TEXT");
+} catch (e) {}
+try {
+  db.exec("ALTER TABLE capturas ADD COLUMN usuario_avatar TEXT");
+} catch (e) {}
+try {
+  db.exec("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'supervisor'");
+} catch (e) {}
 
 // Seed initial data
-const seedData = async (connection: mysql.PoolConnection) => {
+const seedData = () => {
   // Clean up duplicates and ensure uniqueness
   try {
     // 1. Normalize names (trim and uppercase) for existing data
-    await connection.query(`UPDATE destajistas SET nombre = UPPER(TRIM(nombre))`);
+    db.exec(`UPDATE destajistas SET nombre = UPPER(TRIM(nombre))`);
     
     // 2. Delete duplicates keeping only the one with the lowest ID
-    await connection.query(`
+    db.exec(`
       DELETE FROM destajistas 
       WHERE id NOT IN (
-        SELECT id FROM (
-          SELECT MIN(id) as id
-          FROM destajistas 
-          GROUP BY nombre
-        ) as t
+        SELECT MIN(id) 
+        FROM destajistas 
+        GROUP BY nombre
       )
     `);
     
-    // 3. Clean up duplicate activities
-    await connection.query(`
+    // 3. Create a unique index if it doesn't exist to prevent future duplicates
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_destajistas_nombre ON destajistas(nombre)`);
+
+    // 4. Clean up duplicate activities
+    db.exec(`
       DELETE FROM actividades 
       WHERE id NOT IN (
-        SELECT id FROM (
-          SELECT MIN(id) as id
-          FROM actividades 
-          GROUP BY nombre
-        ) as t
+        SELECT MIN(id) 
+        FROM actividades 
+        GROUP BY nombre
       )
     `);
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_actividades_nombre ON actividades(nombre)`);
   } catch (e) {
     console.error("Error cleaning up master data:", e);
   }
 
+  const insertDestajista = db.prepare("INSERT OR IGNORE INTO destajistas (nombre) VALUES (?)");
   const destajistasList = [
     "FRANCISCO ZARRAZAGA CONTRERAS",
     "EMMANUEL ZARRAZAGA GAMAS",
@@ -167,10 +153,22 @@ const seedData = async (connection: mysql.PoolConnection) => {
     "VICTOR MANUEL CASTILLO"
   ].map(n => n.trim().toUpperCase());
 
-  for (const n of destajistasList) {
-    await connection.query("INSERT IGNORE INTO destajistas (nombre) VALUES (?)", [n]);
-  }
+  // Remove destajistas not in the official list (only if they don't have captures to avoid errors)
+  const existingDestajistas = db.prepare("SELECT id, nombre FROM destajistas").all() as { id: number, nombre: string }[];
+  existingDestajistas.forEach(d => {
+    if (!destajistasList.includes(d.nombre)) {
+      try {
+        db.prepare("DELETE FROM destajistas WHERE id = ?").run(d.id);
+      } catch (e) {
+        // Probably has captures, keep it
+        console.log(`Keeping destajista ${d.nombre} because it has associated data`);
+      }
+    }
+  });
 
+  destajistasList.forEach(n => insertDestajista.run(n));
+
+  const insertActividad = db.prepare("INSERT OR IGNORE INTO actividades (nombre, precio) VALUES (?, ?)");
   const actividadesList: [string, number][] = [
     ["ACCESO HUELLAS", 1800.00], ["ACCESORIOS DE BAÑO P.B Y P.A", 600.00], ["ACCESORIOS PA", 500.00],
     ["ACCESORIOS PB", 500.00], ["ACERO LOSA AZOTEA", 5600.00], ["ACERO LOSA DE ENTREPISO", 6900.00],
@@ -209,10 +207,9 @@ const seedData = async (connection: mysql.PoolConnection) => {
     ["COLADO DE CASTILLOS", 250.00], ["COLADO DE CADENAS", 280.00], ["HABILITADO DE ACERO", 500.00],
     ["CIMBRA EN MUROS", 600.00], ["DESMOLDE", 150.00], ["CURADO DE CONCRETO", 100.00]
   ];
-  for (const [n, p] of actividadesList) {
-    await connection.query("INSERT IGNORE INTO actividades (nombre, precio) VALUES (?, ?)", [n.trim().toUpperCase(), p]);
-  }
+  actividadesList.forEach(([n, p]) => insertActividad.run(n.trim().toUpperCase(), p));
 
+  const insertUbicacion = db.prepare("INSERT OR IGNORE INTO ubicaciones (paquete, manzana, lote) VALUES (?, ?, ?)");
   const ubicacionesRaw = [
     ["E", "98", "1"], ["E", "98", "2"], ["E", "98", "3"], ["E", "98", "4"], ["E", "98", "5"], ["E", "98", "6"], ["E", "98", "7"], ["E", "98", "8"], ["E", "98", "9"], ["E", "98", "10"], ["E", "98", "11"], ["E", "98", "12"], ["E", "98", "13"], ["E", "98", "14"],
     ["E", "99", "1"], ["E", "99", "2"], ["E", "99", "3"], ["E", "99", "4"], ["E", "99", "5"], ["E", "99", "6"], ["E", "99", "7"], ["E", "99", "8"], ["E", "99", "9"], ["E", "99", "10"], ["E", "99", "11"], ["E", "99", "12"], ["E", "99", "13"], ["E", "99", "14"],
@@ -244,47 +241,32 @@ const seedData = async (connection: mysql.PoolConnection) => {
     ["Q", "60", "1"], ["Q", "60", "2"], ["Q", "60", "3"], ["Q", "60", "4"], ["Q", "60", "5"], ["Q", "60", "6"], ["Q", "60", "7"], ["Q", "60", "8"], ["Q", "60", "9"], ["Q", "60", "10"], ["Q", "60", "11"], ["Q", "60", "12"],
     ["Q", "61", "1"], ["Q", "61", "2"], ["Q", "61", "3"], ["Q", "61", "4"], ["Q", "61", "5"], ["Q", "61", "6"], ["Q", "61", "7"], ["Q", "61", "8"], ["Q", "61", "9"], ["Q", "61", "10"], ["Q", "61", "11"], ["Q", "61", "12"]
   ];
-  for (const [p, m, l] of ubicacionesRaw) {
-    await connection.query("INSERT IGNORE INTO ubicaciones (paquete, manzana, lote) VALUES (?, ?, ?)", [p, m, l]);
-  }
+  ubicacionesRaw.forEach(([p, m, l]) => insertUbicacion.run(p, m, l));
 
   // Seed initial user
-  await connection.query("INSERT IGNORE INTO users (username, password, avatar, role) VALUES (?, ?, ?, ?)", ["ArmandoL", "rabito31", "https://api.dicebear.com/7.x/avataaars/svg?seed=ArmandoL", "supervisor"]);
+  const insertUser = db.prepare("INSERT OR IGNORE INTO users (username, password, avatar, role) VALUES (?, ?, ?, ?)");
+  insertUser.run("ArmandoL", "rabito31", "https://api.dicebear.com/7.x/avataaars/svg?seed=ArmandoL", "supervisor");
 
   // Add some sample captures if none exist
-  const [capturesCountRows] = await connection.query("SELECT COUNT(*) as count FROM capturas") as any;
-  if (capturesCountRows[0].count === 0) {
-    const [d1Rows] = await connection.query("SELECT id FROM destajistas LIMIT 1") as any;
-    const [a1Rows] = await connection.query("SELECT id FROM actividades LIMIT 1") as any;
-    if (d1Rows[0] && a1Rows[0]) {
-      await connection.query(`
+  const capturesCount = db.prepare("SELECT COUNT(*) as count FROM capturas").get() as { count: number };
+  if (capturesCount.count === 0) {
+    const d1 = db.prepare("SELECT id FROM destajistas LIMIT 1").get() as { id: number };
+    const a1 = db.prepare("SELECT id FROM actividades LIMIT 1").get() as { id: number };
+    if (d1 && a1) {
+      db.prepare(`
         INSERT INTO capturas (destajista_id, actividad_id, paquete, manzana, lotes, semana, cantidad)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-      `, [d1Rows[0].id, a1Rows[0].id, "E", "98", "1, 2", 1, 2]);
+      `).run(d1.id, a1.id, "E", "98", "1, 2", 1, 2);
     }
   }
 };
 
-async function startServer() {
-  console.log("Intentando conectar a MySQL...");
-  try {
-    const connection = await pool.getConnection();
-    console.log("✅ Conexión a MySQL establecida con éxito.");
-    connection.release();
-  } catch (error: any) {
-    console.error("❌ Error crítico al conectar a MySQL:");
-    console.error(`Mensaje: ${error.message}`);
-    console.error(`Código: ${error.code}`);
-    console.error("Asegúrate de que MYSQL_URL sea correcta y accesible.");
-    // No detenemos el servidor para permitir que Vite siga funcionando, 
-    // pero las rutas de API fallarán hasta que se corrija la conexión.
-  }
+seedData();
 
-  await initDb();
+async function startServer() {
   const app = express();
   const httpServer = createHttpServer(app);
   const io = new Server(httpServer, {
-    path: "/socket.io/",
     cors: {
       origin: "*",
       methods: ["GET", "POST"]
@@ -302,14 +284,13 @@ async function startServer() {
   }));
 
   // Auth Routes
-  app.post("/api/auth/login", async (req, res) => {
+  app.post("/api/auth/login", (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) {
       return res.status(400).json({ error: "Usuario y contraseña son requeridos" });
     }
     
-    const [rows] = await pool.query("SELECT * FROM users WHERE username = ? AND password = ?", [username, password]) as any;
-    const user = rows[0];
+    const user = db.prepare("SELECT * FROM users WHERE username = ? AND password = ?").get(username, password) as any;
     
     if (!user) {
       return res.status(401).json({ error: "Usuario o contraseña incorrectos" });
@@ -325,7 +306,7 @@ async function startServer() {
     res.json({ success: true, user: req.session?.user });
   });
 
-  app.post("/api/auth/register", async (req, res) => {
+  app.post("/api/auth/register", (req, res) => {
     const { username, password, role } = req.body;
     if (!username || !password) {
       return res.status(400).json({ error: "Usuario y contraseña son requeridos" });
@@ -334,7 +315,7 @@ async function startServer() {
     try {
       const avatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`;
       const userRole = role || 'capturista';
-      await pool.query("INSERT INTO users (username, password, avatar, role) VALUES (?, ?, ?, ?)", [username, password, avatar, userRole]);
+      db.prepare("INSERT INTO users (username, password, avatar, role) VALUES (?, ?, ?, ?)").run(username, password, avatar, userRole);
       res.json({ success: true });
     } catch (e) {
       res.status(400).json({ error: "El usuario ya existe" });
@@ -351,17 +332,16 @@ async function startServer() {
   });
 
   // User Management Routes
-  app.get("/api/users", async (req, res) => {
-    const [rows] = await pool.query("SELECT id, username, avatar, role, created_at FROM users ORDER BY username");
+  app.get("/api/users", (req, res) => {
+    const rows = db.prepare("SELECT id, username, avatar, role, created_at FROM users ORDER BY username").all();
     res.json(rows);
   });
 
-  app.delete("/api/users/:id", async (req, res) => {
+  app.delete("/api/users/:id", (req, res) => {
     const id = req.params.id;
     try {
       // Don't allow deleting ArmandoL
-      const [rows] = await pool.query("SELECT username FROM users WHERE id = ?", [id]) as any;
-      const userToDelete = rows[0];
+      const userToDelete = db.prepare("SELECT username FROM users WHERE id = ?").get(id) as { username: string } | undefined;
       
       if (!userToDelete) {
         return res.status(404).json({ error: "Usuario no encontrado" });
@@ -371,8 +351,8 @@ async function startServer() {
         return res.status(403).json({ error: "No se puede eliminar el usuario administrador principal" });
       }
 
-      const [result] = await pool.query("DELETE FROM users WHERE id = ?", [id]) as any;
-      if (result.affectedRows > 0) {
+      const result = db.prepare("DELETE FROM users WHERE id = ?").run(id);
+      if (result.changes > 0) {
         res.json({ success: true });
       } else {
         res.status(404).json({ error: "No se pudo eliminar el usuario" });
@@ -392,28 +372,28 @@ async function startServer() {
   });
 
   // API Routes
-  app.get("/api/destajistas", async (req, res) => {
-    const [rows] = await pool.query("SELECT * FROM destajistas ORDER BY nombre");
+  app.get("/api/destajistas", (req, res) => {
+    const rows = db.prepare("SELECT * FROM destajistas ORDER BY nombre").all();
     res.json(rows);
   });
 
-  app.post("/api/destajistas", async (req, res) => {
+  app.post("/api/destajistas", (req, res) => {
     const { nombre } = req.body;
     const normalizedNombre = nombre.trim().toUpperCase();
     try {
-      const [result] = await pool.query("INSERT INTO destajistas (nombre) VALUES (?)", [normalizedNombre]) as any;
+      const info = db.prepare("INSERT INTO destajistas (nombre) VALUES (?)").run(normalizedNombre);
       io.emit("data_changed", { type: "destajistas" });
-      res.json({ id: result.insertId });
+      res.json({ id: info.lastInsertRowid });
     } catch (e) {
       res.status(400).json({ error: "El destajista ya existe" });
     }
   });
 
-  app.put("/api/destajistas/:id", async (req, res) => {
+  app.put("/api/destajistas/:id", (req, res) => {
     const { nombre } = req.body;
     const normalizedNombre = nombre.trim().toUpperCase();
     try {
-      await pool.query("UPDATE destajistas SET nombre = ? WHERE id = ?", [normalizedNombre, req.params.id]);
+      db.prepare("UPDATE destajistas SET nombre = ? WHERE id = ?").run(normalizedNombre, req.params.id);
       io.emit("data_changed", { type: "destajistas" });
       res.json({ success: true });
     } catch (e) {
@@ -421,48 +401,48 @@ async function startServer() {
     }
   });
 
-  app.delete("/api/destajistas/:id", async (req, res) => {
+  app.delete("/api/destajistas/:id", (req, res) => {
     const id = req.params.id;
-    const connection = await pool.getConnection();
     try {
-      await connection.beginTransaction();
-      await connection.query("DELETE FROM capturas WHERE destajista_id = ?", [id]);
-      await connection.query("DELETE FROM destajistas WHERE id = ?", [id]);
-      await connection.commit();
+      const deleteCapturas = db.prepare("DELETE FROM capturas WHERE destajista_id = ?");
+      const deleteDestajista = db.prepare("DELETE FROM destajistas WHERE id = ?");
       
+      const transaction = db.transaction(() => {
+        deleteCapturas.run(id);
+        deleteDestajista.run(id);
+      });
+      
+      transaction();
       io.emit("data_changed", { type: "destajistas" });
       res.json({ success: true });
     } catch (e) {
-      await connection.rollback();
       console.error("Error deleting destajista:", e);
       res.status(500).json({ error: "Error al eliminar el destajista" });
-    } finally {
-      connection.release();
     }
   });
 
-  app.get("/api/actividades", async (req, res) => {
-    const [rows] = await pool.query("SELECT * FROM actividades ORDER BY nombre");
+  app.get("/api/actividades", (req, res) => {
+    const rows = db.prepare("SELECT * FROM actividades ORDER BY nombre").all();
     res.json(rows);
   });
 
-  app.post("/api/actividades", async (req, res) => {
+  app.post("/api/actividades", (req, res) => {
     const { nombre, precio } = req.body;
     const normalizedNombre = nombre.trim().toUpperCase();
     try {
-      const [result] = await pool.query("INSERT INTO actividades (nombre, precio) VALUES (?, ?)", [normalizedNombre, precio]) as any;
+      const info = db.prepare("INSERT INTO actividades (nombre, precio) VALUES (?, ?)").run(normalizedNombre, precio);
       io.emit("data_changed", { type: "actividades" });
-      res.json({ id: result.insertId });
+      res.json({ id: info.lastInsertRowid });
     } catch (e) {
       res.status(400).json({ error: "La actividad ya existe" });
     }
   });
 
-  app.put("/api/actividades/:id", async (req, res) => {
+  app.put("/api/actividades/:id", (req, res) => {
     const { nombre, precio } = req.body;
     const normalizedNombre = nombre.trim().toUpperCase();
     try {
-      await pool.query("UPDATE actividades SET nombre = ?, precio = ? WHERE id = ?", [normalizedNombre, precio, req.params.id]);
+      db.prepare("UPDATE actividades SET nombre = ?, precio = ? WHERE id = ?").run(normalizedNombre, precio, req.params.id);
       io.emit("data_changed", { type: "actividades" });
       res.json({ success: true });
     } catch (e) {
@@ -470,64 +450,63 @@ async function startServer() {
     }
   });
 
-  app.delete("/api/actividades/:id", async (req, res) => {
+  app.delete("/api/actividades/:id", (req, res) => {
     const id = req.params.id;
-    const connection = await pool.getConnection();
     try {
-      await connection.beginTransaction();
-      await connection.query("DELETE FROM capturas WHERE actividad_id = ?", [id]);
-      await connection.query("DELETE FROM actividades WHERE id = ?", [id]);
-      await connection.commit();
+      const deleteCapturas = db.prepare("DELETE FROM capturas WHERE actividad_id = ?");
+      const deleteActividad = db.prepare("DELETE FROM actividades WHERE id = ?");
       
+      const transaction = db.transaction(() => {
+        deleteCapturas.run(id);
+        deleteActividad.run(id);
+      });
+      
+      transaction();
       io.emit("data_changed", { type: "actividades" });
       res.json({ success: true });
     } catch (e) {
-      await connection.rollback();
       console.error("Error deleting actividad:", e);
       res.status(500).json({ error: "Error al eliminar la actividad" });
-    } finally {
-      connection.release();
     }
   });
 
-  app.get("/api/ubicaciones", async (req, res) => {
-    const [rows] = await pool.query("SELECT * FROM ubicaciones ORDER BY paquete, manzana, lote");
+  app.get("/api/ubicaciones", (req, res) => {
+    const rows = db.prepare("SELECT * FROM ubicaciones ORDER BY paquete, manzana, lote").all();
     res.json(rows);
   });
 
-  app.post("/api/ubicaciones", async (req, res) => {
+  app.post("/api/ubicaciones", (req, res) => {
     const data = req.body;
-    const connection = await pool.getConnection();
     try {
+      const insert = db.prepare("INSERT OR IGNORE INTO ubicaciones (paquete, manzana, lote) VALUES (?, ?, ?)");
+      
       if (Array.isArray(data)) {
-        await connection.beginTransaction();
-        for (const item of data) {
-          await connection.query("INSERT IGNORE INTO ubicaciones (paquete, manzana, lote) VALUES (?, ?, ?)", [item.paquete, item.manzana, item.lote]);
-        }
-        await connection.commit();
+        const transaction = db.transaction((items) => {
+          for (const item of items) {
+            insert.run(item.paquete, item.manzana, item.lote);
+          }
+        });
+        transaction(data);
         io.emit("data_changed", { type: "ubicaciones" });
         res.json({ success: true, count: data.length });
       } else {
         const { paquete, manzana, lote } = data;
-        const [result] = await connection.query("INSERT IGNORE INTO ubicaciones (paquete, manzana, lote) VALUES (?, ?, ?)", [paquete, manzana, lote]) as any;
+        const info = insert.run(paquete, manzana, lote);
         io.emit("data_changed", { type: "ubicaciones" });
-        res.json({ id: result.insertId });
+        res.json({ id: info.lastInsertRowid });
       }
     } catch (e: any) {
-      if (Array.isArray(data)) await connection.rollback();
       res.status(400).json({ error: e.message });
-    } finally {
-      connection.release();
     }
   });
 
-  app.delete("/api/ubicaciones/:id", async (req, res) => {
-    await pool.query("DELETE FROM ubicaciones WHERE id = ?", [req.params.id]);
+  app.delete("/api/ubicaciones/:id", (req, res) => {
+    db.prepare("DELETE FROM ubicaciones WHERE id = ?").run(req.params.id);
     io.emit("data_changed", { type: "ubicaciones" });
     res.json({ success: true });
   });
 
-  app.get("/api/capturas", async (req, res) => {
+  app.get("/api/capturas", (req, res) => {
     const { semana, destajista_id } = req.query;
     let query = `
       SELECT c.*, d.nombre as destajista_nombre, a.nombre as actividad_nombre, a.precio
@@ -548,21 +527,20 @@ async function startServer() {
     }
 
     query += " ORDER BY c.fecha_creacion DESC";
-    const [rows] = await pool.query(query, params);
+    const rows = db.prepare(query).all(...params);
     res.json(rows);
   });
 
-  app.post("/api/capturas", async (req, res) => {
+  app.post("/api/capturas", (req, res) => {
     const data = req.body;
     const user = req.session?.user;
-    const connection = await pool.getConnection();
     
     try {
-      const checkDuplicate = async (destajista_id: number, actividad_id: number, paquete: string, manzana: string, lotes: string) => {
-        const [existing] = await connection.query(`
+      const checkDuplicate = (destajista_id: number, actividad_id: number, paquete: string, manzana: string, lotes: string) => {
+        const existing = db.prepare(`
           SELECT lotes FROM capturas 
           WHERE destajista_id = ? AND actividad_id = ? AND paquete = ? AND manzana = ?
-        `, [destajista_id, actividad_id, paquete, manzana]) as any[];
+        `).all(destajista_id, actividad_id, paquete, manzana) as { lotes: string }[];
 
         const newLotes = lotes.split(',').map(l => l.trim()).filter(l => l !== "");
         
@@ -577,51 +555,51 @@ async function startServer() {
         return null;
       };
 
+      const insert = db.prepare(`
+        INSERT INTO capturas (destajista_id, actividad_id, paquete, manzana, lotes, semana, cantidad, usuario_nombre, usuario_avatar)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
       if (Array.isArray(data)) {
-        await connection.beginTransaction();
-        for (const item of data) {
-          const duplicateLote = await checkDuplicate(
-            item.destajista_id, 
-            item.actividad_id, 
-            item.paquete, 
-            item.manzana, 
-            item.lotes
-          );
+        const transaction = db.transaction((items) => {
+          for (const item of items) {
+            const duplicateLote = checkDuplicate(
+              item.destajista_id, 
+              item.actividad_id, 
+              item.paquete, 
+              item.manzana, 
+              item.lotes
+            );
 
-          if (duplicateLote) {
-            throw new Error(`El lote ${duplicateLote} ya fue pagado para esta actividad a este destajista.`);
+            if (duplicateLote) {
+              throw new Error(`El lote ${duplicateLote} ya fue pagado para esta actividad a este destajista.`);
+            }
+
+            insert.run(
+              item.destajista_id, 
+              item.actividad_id, 
+              item.paquete, 
+              item.manzana, 
+              item.lotes, 
+              item.semana, 
+              item.cantidad,
+              user?.name || 'Anónimo',
+              user?.avatar || '👤'
+            );
           }
-
-          await connection.query(`
-            INSERT INTO capturas (destajista_id, actividad_id, paquete, manzana, lotes, semana, cantidad, usuario_nombre, usuario_avatar)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `, [
-            item.destajista_id, 
-            item.actividad_id, 
-            item.paquete, 
-            item.manzana, 
-            item.lotes, 
-            item.semana, 
-            item.cantidad,
-            user?.name || 'Anónimo',
-            user?.avatar || '👤'
-          ]);
-        }
-        await connection.commit();
+        });
+        transaction(data);
         io.emit("data_changed", { type: "capturas" });
         res.json({ success: true, count: data.length });
       } else {
         const { destajista_id, actividad_id, paquete, manzana, lotes, semana, cantidad } = data;
         
-        const duplicateLote = await checkDuplicate(destajista_id, actividad_id, paquete, manzana, lotes);
+        const duplicateLote = checkDuplicate(destajista_id, actividad_id, paquete, manzana, lotes);
         if (duplicateLote) {
           return res.status(400).json({ error: `El lote ${duplicateLote} ya fue pagado para esta actividad a este destajista.` });
         }
 
-        const [result] = await connection.query(`
-          INSERT INTO capturas (destajista_id, actividad_id, paquete, manzana, lotes, semana, cantidad, usuario_nombre, usuario_avatar)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [
+        const info = insert.run(
           destajista_id, 
           actividad_id, 
           paquete, 
@@ -631,21 +609,18 @@ async function startServer() {
           cantidad,
           user?.name || 'Anónimo',
           user?.avatar || '👤'
-        ]) as any;
+        );
         io.emit("data_changed", { type: "capturas" });
-        res.json({ id: result.insertId });
+        res.json({ id: info.lastInsertRowid });
       }
     } catch (error: any) {
-      if (Array.isArray(data)) await connection.rollback();
       console.error("Error saving captures:", error);
       res.status(400).json({ error: error.message });
-    } finally {
-      connection.release();
     }
   });
 
-  app.delete("/api/capturas/:id", async (req, res) => {
-    await pool.query("DELETE FROM capturas WHERE id = ?", [req.params.id]);
+  app.delete("/api/capturas/:id", (req, res) => {
+    db.prepare("DELETE FROM capturas WHERE id = ?").run(req.params.id);
     io.emit("data_changed", { type: "capturas" });
     res.json({ success: true });
   });
