@@ -2166,6 +2166,9 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+      <div className="fixed bottom-2 left-4 text-[10px] text-gray-400 dark:text-zinc-600 z-50 pointer-events-none opacity-50">
+        v1.0.2 - {new Date().toLocaleDateString()}
+      </div>
     </div>
   );
 }
