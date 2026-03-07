@@ -3,7 +3,6 @@ import {
   LayoutDashboard, 
   FileText, 
   Users, 
-  User,
   Calendar, 
   Download, 
   LogOut, 
@@ -15,13 +14,15 @@ import {
   AlertCircle,
   Sun,
   Moon,
-  ArrowLeft
+  ArrowLeft,
+  User
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ExcelJS from 'exceljs';
 import { generateWeeklySummary } from './services/geminiService';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { io } from 'socket.io-client';
 
 // Utility for tailwind classes
 function cn(...inputs: ClassValue[]) {
@@ -62,97 +63,7 @@ interface Ubicacion {
   lote: string;
 }
 
-interface AppUser {
-  id: number;
-  username: string;
-  avatar: string;
-  role: string;
-  created_at: string;
-}
-
 type View = 'dashboard' | 'capture' | 'summary-destajista' | 'summary-weekly' | 'export' | 'manage-data' | 'delete-captures' | 'manage-users';
-
-// Initial Seed Data
-const INITIAL_DESTAJISTAS = [
-  "FRANCISCO ZARRAZAGA CONTRERAS", "EMMANUEL ZARRAZAGA GAMAS", "FRANCISCO JAVIER ZARRAZAGA GAMAS",
-  "MIGUEL ANGEL QUIROGA JIMENEZ", "FELIPE REYES JIMENEZ", "CECILIO FUENTE DE LA CRUZ",
-  "ROGER ROSADO JIMENEZ", "BAIBY RUTH DE LA CRUZ GOMEZ", "JOSE EDUARDO HERNANDEZ ESCALANTE",
-  "JUAN ENRIQUE VERA HERNANDEZ", "LUIS ALBERTO MAY PEREZ", "ELIAZAR CRUZ CRUZ",
-  "JOSE A. OVANDO RICARDEZ", "FRANCISCO MACIEL MAGAÑA", "ALBERTO CRUZ HERNANDEZ",
-  "MIGUEL ANGEL RAMIREZ JIMENEZ", "ROMEL PEREZ HERNANDEZ", "DANIEL MARQUEZ GIL",
-  "VICTOR ALFONSO RODRIGUEZ VALDEZ", "VICTOR MANUEL CASTILLO"
-].map((nombre, id) => ({ id: id + 1, nombre: nombre.toUpperCase() }));
-
-const INITIAL_ACTIVIDADES = [
-  ["ACCESO HUELLAS", 1800.00], ["ACCESORIOS DE BAÑO P.B Y P.A", 600.00], ["ACCESORIOS PA", 500.00],
-  ["ACCESORIOS PB", 500.00], ["ACERO LOSA AZOTEA", 5600.00], ["ACERO LOSA DE ENTREPISO", 6900.00],
-  ["ACERO MURO PLANTA ALTA", 4200.00], ["ACERO MURO PLANTA BAJA", 3800.00],
-  ["ACERO, CIMBRA Y COLADO DE ESCALERA", 6500.00], ["ACERO, CIMBRA Y COLADO DE PRETIL", 4700.00],
-  ["AJUSTE 200XMOLDERO PB", 3200.00], ["AJUSTE 200XMOLDERO PA", 3400.00],
-  ["AJUSTE COMIDA (16 MOLDEROS) PB", 320.00], ["AJUSTE COMIDA (17 MOLDEROS) PA", 340.00],
-  ["AJUSTE MOLDE PA", 6736.00], ["AJUSTE MOLDE PB", 3200.00], ["ARMADO DE CIMENTACION", 22348.00],
-  ["AZULEJO PA", 2100.00], ["AZULEJO PB", 2100.00], ["BARDA MEDIANERA", 3000.00],
-  ["BASE DE TINACO", 2800.00], ["CABLEADO ACOMETIDA P.A", 300.00], ["CABLEADO ACOMETIDA P.B", 300.00],
-  ["CABLEADO DE VIVIENDA PA", 1900.00], ["CABLEADO DE VIVIENDA PB", 1900.00],
-  ["CHAROLA SANITARIA PB", 500.00], ["CINTA MULTISEAL", 550.00], ["EMBOQUILLADO EN PRETIL", 1200.00],
-  ["EMBOQUILLADO PA", 4742.59], ["EMBOQUILLADO PB", 4128.96], ["ENCHALUPADO MURO P.A", 1800.00],
-  ["ENCHALUPADO P.B", 1800.00], ["ENMASILLADO EN MURO INTERIOR PB 01", 9111.21],
-  ["ENMASILLADO EN MURO INTERIOR PA 01", 9353.92],
-  ["ENMASILLADO EN MURO INTERIOR PA 02 (LIBERACION DE RETENCION DE MASILLA INTERIOR)", 1800.00],
-  ["ENMASILLADO EN MURO INTERIOR PB 02 (LIBERACION DE RETENCION DE MASILLA INTERIOR)", 1800.00],
-  ["ENMASILLADO EN PRETIL", 1500.00], ["ENTORTADO Y CHAFLAN", 2500.00], ["FIRME NIV PA", 2100.00],
-  ["FIRME NIV PB", 1900.00], ["FIRMES PATIO PA", 600.00], ["FIRMES PATIO PB", 500.00],
-  ["IMPER CHAROLA", 100.00], ["INSTALACION CLIMA PA", 1200.00], ["INSTALACION CLIMA PB", 1200.00],
-  ["INSTALACION EN CIMENTACION", 3500.00], ["INSTALACION LOSA ENTREPISO", 2800.00],
-  ["LECHEREADO EN PISO", 130.00], ["LIBERACION PINTURA INT PA 2DA MANO", 2600.00],
-  ["MASILLA BAÑOS", 500.00], ["MASILLA MURO EXT PA", 3627.26], ["MASILLA MURO EXT PB", 3262.64],
-  ["MOLD P. ALTA", 22753.64], ["MOLD P. BAJA", 22572.00], ["MOLDE PA", 22753.64],
-  ["MURETE PA", 500.00], ["MURETE PB", 500.00], ["PINTURA EXT PA 2DA MANO", 1300.00],
-  ["PINTURA EXTERIOR PA 2DA MANO", 1300.00], ["PINTURA EXTERIOR PA 1RA MANO", 1300.00],
-  ["PINTURA EXTERIOR PB 1RA MANO", 1100.00], ["PINTURA EXTERIORPA 2DA MANO", 1300.00],
-  ["PINTURA EXTERIORPB 2DA MANO", 1100.00], ["PINTURA INT PA 2DA MANO", 2600.00],
-  ["PINTURA INTERIOR PA 1RA MANO", 2600.00], ["PINTURA INTERIOR PB 1RA MANO", 2500.00],
-  ["PINTURA INTERIOR PB 2DA MANO", 2500.00], ["PINTURA POSTERIOR", 1156.00],
-  ["PLANTILLA", 1200.00], ["PROLONGACION PLUVIAL PB", 600.00], ["PUERTAS Y VENTANAS", 7000.00],
-  ["REGISTROS SANITARIOS", 5100.00], ["ROTULOS DE LOTE", 50.00], ["ROTULOS DE VIVIENDA", 240.00],
-  ["SARDINEL", 400.00], ["TAQUETEO", 1500.00], ["TINACO PA", 600.00], ["TINACO PB", 600.00],
-  ["ACARREO DE BLOCK", 150.00], ["ASENTADO DE BLOCK", 450.00], ["CASTILLOS", 300.00],
-  ["CADENAS", 350.00], ["CERRAMIENTOS", 400.00], ["RANURADO", 120.00], ["LIMPIEZA", 200.00],
-  ["COLADO DE CASTILLOS", 250.00], ["COLADO DE CADENAS", 280.00], ["HABILITADO DE ACERO", 500.00],
-  ["CIMBRA EN MUROS", 600.00], ["DESMOLDE", 150.00], ["CURADO DE CONCRETO", 100.00]
-].map(([nombre, precio], id) => ({ id: id + 1, nombre: (nombre as string).toUpperCase(), precio: precio as number }));
-
-const INITIAL_UBICACIONES = [
-  ["E", "98", "1"], ["E", "98", "2"], ["E", "98", "3"], ["E", "98", "4"], ["E", "98", "5"], ["E", "98", "6"], ["E", "98", "7"], ["E", "98", "8"], ["E", "98", "9"], ["E", "98", "10"], ["E", "98", "11"], ["E", "98", "12"], ["E", "98", "13"], ["E", "98", "14"],
-  ["E", "99", "1"], ["E", "99", "2"], ["E", "99", "3"], ["E", "99", "4"], ["E", "99", "5"], ["E", "99", "6"], ["E", "99", "7"], ["E", "99", "8"], ["E", "99", "9"], ["E", "99", "10"], ["E", "99", "11"], ["E", "99", "12"], ["E", "99", "13"], ["E", "99", "14"],
-  ["F", "100", "1"], ["F", "100", "2"], ["F", "100", "3"], ["F", "100", "4"], ["F", "100", "5"], ["F", "100", "6"], ["F", "100", "7"], ["F", "100", "8"], ["F", "100", "9"], ["F", "100", "10"], ["F", "100", "11"], ["F", "100", "12"], ["F", "100", "13"], ["F", "100", "14"],
-  ["F", "101", "1"], ["F", "101", "2"], ["F", "101", "3"], ["F", "101", "4"], ["F", "101", "5"],
-  ["F", "102", "1"], ["F", "102", "2"], ["F", "102", "3"], ["F", "102", "4"], ["F", "102", "5"], ["F", "102", "6"],
-  ["G", "102", "7"], ["G", "102", "8"], ["G", "102", "9"], ["G", "102", "10"],
-  ["G", "93", "1"], ["G", "93", "2"], ["G", "93", "3"], ["G", "93", "4"], ["G", "93", "5"], ["G", "93", "6"], ["G", "93", "7"], ["G", "93", "8"], ["G", "93", "9"], ["G", "93", "10"],
-  ["G", "94", "1"], ["G", "94", "2"], ["G", "94", "3"], ["G", "94", "4"], ["G", "94", "5"], ["G", "94", "6"], ["G", "94", "7"], ["G", "94", "8"], ["G", "94", "9"], ["G", "94", "10"],
-  ["G", "95", "1"], ["G", "95", "2"], ["G", "95", "3"], ["G", "95", "4"], ["G", "95", "5"], ["G", "95", "6"], ["G", "95", "7"], ["G", "95", "8"], ["G", "95", "9"], ["G", "95", "10"],
-  ["H", "88", "1"], ["H", "88", "2"], ["H", "88", "3"], ["H", "88", "4"], ["H", "88", "5"], ["H", "88", "6"], ["H", "88", "7"], ["H", "88", "8"], ["H", "88", "9"], ["H", "88", "10"],
-  ["H", "89", "1"], ["H", "89", "2"], ["H", "89", "3"], ["H", "89", "4"], ["H", "89", "5"], ["H", "89", "6"], ["H", "89", "7"], ["H", "89", "8"], ["H", "89", "9"], ["H", "89", "10"],
-  ["H", "96", "1"], ["H", "96", "2"], ["H", "96", "3"], ["H", "96", "4"], ["H", "96", "5"], ["H", "96", "6"], ["H", "96", "7"], ["H", "96", "8"], ["H", "96", "9"], ["H", "96", "10"],
-  ["I", "90", "1"], ["I", "90", "2"], ["I", "90", "3"], ["I", "90", "4"], ["I", "90", "5"], ["I", "90", "6"], ["I", "90", "7"], ["I", "90", "8"], ["I", "90", "9"], ["I", "90", "10"],
-  ["I", "91", "1"], ["I", "91", "2"], ["I", "91", "3"], ["I", "91", "4"], ["I", "91", "5"], ["I", "91", "6"], ["I", "91", "7"], ["I", "91", "8"], ["I", "91", "9"], ["I", "91", "10"],
-  ["I", "92", "1"], ["I", "92", "2"], ["I", "92", "3"], ["I", "92", "4"], ["I", "92", "5"], ["I", "92", "9"],
-  ["K", "103", "1"], ["K", "103", "2"], ["K", "103", "3"], ["K", "103", "4"], ["K", "103", "5"], ["K", "103", "6"], ["K", "103", "7"], ["K", "103", "8"], ["K", "103", "9"], ["K", "103", "10"], ["K", "103", "11"], ["K", "103", "12"], ["K", "103", "13"], ["K", "103", "14"], ["K", "103", "15"], ["K", "103", "16"], ["K", "103", "17"], ["K", "103", "18"], ["K", "103", "19"], ["K", "103", "20"], ["K", "103", "21"], ["K", "103", "22"], ["K", "103", "23"], ["K", "103", "24"], ["K", "103", "25"], ["K", "103", "26"],
-  ["O", "46", "3"], ["O", "46", "4"], ["O", "46", "5"], ["O", "46", "6"], ["O", "46", "7"], ["O", "46", "8"], ["O", "46", "9"],
-  ["O", "49", "1"], ["O", "49", "2"], ["O", "49", "3"], ["O", "49", "4"], ["O", "49", "5"], ["O", "49", "6"], ["O", "49", "7"], ["O", "49", "8"],
-  ["O", "50", "1"], ["O", "50", "2"], ["O", "50", "3"], ["O", "50", "4"], ["O", "50", "5"], ["O", "50", "6"], ["O", "50", "7"], ["O", "50", "8"],
-  ["O", "51", "1"], ["O", "51", "2"], ["O", "51", "3"], ["O", "51", "4"], ["O", "51", "10"], ["O", "51", "11"], ["O", "51", "12"], ["O", "51", "13"],
-  ["P", "47", "1"], ["P", "47", "2"], ["P", "47", "3"], ["P", "47", "4"], ["P", "47", "5"], ["P", "47", "6"], ["P", "47", "7"], ["P", "47", "8"],
-  ["P", "48", "1"], ["P", "48", "2"], ["P", "48", "3"], ["P", "48", "4"], ["P", "48", "5"], ["P", "48", "6"], ["P", "48", "7"], ["P", "48", "8"],
-  ["P", "54", "1"], ["P", "54", "2"], ["P", "54", "3"], ["P", "54", "4"], ["P", "54", "5"], ["P", "54", "6"], ["P", "54", "7"], ["P", "54", "8"], ["P", "54", "9"], ["P", "54", "10"],
-  ["P", "55", "1"], ["P", "55", "2"], ["P", "55", "3"], ["P", "55", "4"], ["P", "55", "5"], ["P", "55", "6"], ["P", "55", "7"], ["P", "55", "8"], ["P", "55", "9"], ["P", "55", "10"],
-  ["P", "56", "1"], ["P", "56", "2"], ["P", "56", "3"], ["P", "56", "4"], ["P", "56", "5"], ["P", "56", "6"], ["P", "56", "7"], ["P", "56", "8"], ["P", "56", "9"], ["P", "56", "10"],
-  ["Q", "52", "1"], ["Q", "52", "2"], ["Q", "52", "3"], ["Q", "52", "4"], ["Q", "52", "5"], ["Q", "52", "6"], ["Q", "52", "7"], ["Q", "52", "8"], ["Q", "52", "9"], ["Q", "52", "10"],
-  ["Q", "53", "1"], ["Q", "53", "2"], ["Q", "53", "3"], ["Q", "53", "4"], ["Q", "53", "5"], ["Q", "53", "6"], ["Q", "53", "7"], ["Q", "53", "8"], ["Q", "53", "9"], ["Q", "53", "10"],
-  ["Q", "60", "1"], ["Q", "60", "2"], ["Q", "60", "3"], ["Q", "60", "4"], ["Q", "60", "5"], ["Q", "60", "6"], ["Q", "60", "7"], ["Q", "60", "8"], ["Q", "60", "9"], ["Q", "60", "10"], ["Q", "60", "11"], ["Q", "60", "12"],
-  ["Q", "61", "1"], ["Q", "61", "2"], ["Q", "61", "3"], ["Q", "61", "4"], ["Q", "61", "5"], ["Q", "61", "6"], ["Q", "61", "7"], ["Q", "61", "8"], ["Q", "61", "9"], ["Q", "61", "10"], ["Q", "61", "11"], ["Q", "61", "12"]
-].map(([p, m, l], id) => ({ id: id + 1, paquete: p, manzana: m, lote: l }));
 
 export default function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
@@ -166,7 +77,7 @@ export default function App() {
   const [actividades, setActividades] = useState<Actividad[]>([]);
   const [ubicaciones, setUbicaciones] = useState<Ubicacion[]>([]);
   const [capturas, setCapturas] = useState<Captura[]>([]);
-  const [users, setUsers] = useState<AppUser[]>([]);
+  const [users, setUsers] = useState<{id: number, username: string, avatar: string, role: string, created_at: string}[]>([]);
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState<{ name: string; avatar: string; role: string } | null>(null);
   const [loginData, setLoginData] = useState({ username: '', password: '', role: 'capturista' });
@@ -209,32 +120,76 @@ export default function App() {
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
 
-  const weeks = Array.from({ length: 52 }, (_, i) => (i + 1).toString());
+  // Refs to keep track of current state for socket listeners
+  const currentViewRef = useRef(currentView);
+  const filterDestajistaRef = useRef(filterDestajista);
+  const filterSemanaRef = useRef(filterSemana);
+  const exportSemanaRef = useRef(exportSemana);
+  const exportDestajistaRef = useRef(exportDestajista);
 
-  // Initialize Local Storage
+  useEffect(() => { currentViewRef.current = currentView; }, [currentView]);
+  useEffect(() => { filterDestajistaRef.current = filterDestajista; }, [filterDestajista]);
+  useEffect(() => { filterSemanaRef.current = filterSemana; }, [filterSemana]);
+  useEffect(() => { exportSemanaRef.current = exportSemana; }, [exportSemana]);
+  useEffect(() => { exportDestajistaRef.current = exportDestajista; }, [exportDestajista]);
+
+  // Socket.io connection
   useEffect(() => {
-    const initStorage = () => {
-      if (!localStorage.getItem('destajistas')) localStorage.setItem('destajistas', JSON.stringify(INITIAL_DESTAJISTAS));
-      if (!localStorage.getItem('actividades')) localStorage.setItem('actividades', JSON.stringify(INITIAL_ACTIVIDADES));
-      if (!localStorage.getItem('ubicaciones')) localStorage.setItem('ubicaciones', JSON.stringify(INITIAL_UBICACIONES));
-      if (!localStorage.getItem('capturas')) localStorage.setItem('capturas', JSON.stringify([]));
-      if (!localStorage.getItem('users')) {
-        localStorage.setItem('users', JSON.stringify([
-          { id: 1, username: 'ArmandoL', password: 'password', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=ArmandoL', role: 'supervisor', created_at: new Date().toISOString() }
-        ]));
-      }
-      loadData();
-    };
-    initStorage();
-  }, []);
+    const socket = io(window.location.origin, {
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      transports: ['polling', 'websocket'],
+      path: '/socket.io/'
+    });
 
-  const loadData = () => {
-    setDestajistas(JSON.parse(localStorage.getItem('destajistas') || '[]'));
-    setActividades(JSON.parse(localStorage.getItem('actividades') || '[]'));
-    setUbicaciones(JSON.parse(localStorage.getItem('ubicaciones') || '[]'));
-    setCapturas(JSON.parse(localStorage.getItem('capturas') || '[]'));
-    setUsers(JSON.parse(localStorage.getItem('users') || '[]'));
-  };
+    socket.on('connect', () => {
+      console.log('Connected to real-time server');
+    });
+
+    socket.on('connect_error', (error) => {
+      console.error('Socket connection error:', error);
+    });
+
+    socket.on('data_changed', (data) => {
+      console.log('Data changed:', data.type);
+      
+      const currentView = currentViewRef.current;
+      const filterDestajista = filterDestajistaRef.current;
+      const filterSemana = filterSemanaRef.current;
+      const exportSemana = exportSemanaRef.current;
+      const exportDestajista = exportDestajistaRef.current;
+
+      // Refresh data based on what changed
+      if (data.type === 'destajistas' || data.type === 'actividades' || data.type === 'ubicaciones') {
+        fetchInitialData();
+      }
+      
+      if (data.type === 'capturas') {
+        // Refresh captures if we are in a view that shows them
+        if (currentView === 'summary-destajista' && filterDestajista) {
+          fetchCapturas({ destajista_id: filterDestajista });
+        } else if (currentView === 'summary-weekly' && filterSemana) {
+          fetchCapturas({ semana: filterSemana });
+        } else if (currentView === 'delete-captures') {
+          fetchCapturas({ semana: filterSemana, destajista_id: filterDestajista });
+        } else if (currentView === 'export') {
+          // Re-trigger the export preview fetch
+          const url = exportDestajista 
+            ? `/api/capturas?semana=${exportSemana}&destajista_id=${exportDestajista}`
+            : `/api/capturas?semana=${exportSemana}`;
+          fetch(url).then(res => res.json()).then(data => setPreviewData(data));
+        }
+      }
+    });
+
+    return () => {
+      if (socket.connected) {
+        socket.disconnect();
+      }
+    };
+  }, []); // Stable connection
+
+  const weeks = Array.from({ length: 52 }, (_, i) => (i + 1).toString());
 
   useEffect(() => {
     if (notification) {
@@ -261,148 +216,414 @@ export default function App() {
     setNotification({ message, type });
   };
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    const allUsers = JSON.parse(localStorage.getItem('users') || '[]');
-    const foundUser = allUsers.find((u: any) => u.username === loginData.username && u.password === loginData.password);
-    
-    if (foundUser) {
-      const userData = { name: foundUser.username, avatar: foundUser.avatar, role: foundUser.role };
-      setUser(userData);
-      localStorage.setItem('currentUser', JSON.stringify(userData));
-      showNotification('Bienvenido de nuevo');
-    } else {
-      showNotification('Usuario o contraseña incorrectos', 'error');
+  const fetchInitialData = async () => {
+    setLoading(true);
+    try {
+      const [dRes, aRes, uRes] = await Promise.all([
+        fetch('/api/destajistas'),
+        fetch('/api/actividades'),
+        fetch('/api/ubicaciones')
+      ]);
+      
+      if (!dRes.ok || !aRes.ok || !uRes.ok) {
+        throw new Error('Error al cargar datos iniciales');
+      }
+
+      const dData = await dRes.json();
+      const aData = await aRes.json();
+      const uData = await uRes.json();
+      setDestajistas(Array.isArray(dData) ? dData : []);
+      setActividades(Array.isArray(aData) ? aData : []);
+      setUbicaciones(Array.isArray(uData) ? uData : []);
+    } catch (error) {
+      console.error('Error fetching initial data:', error);
+      showNotification('Error al cargar datos del servidor', 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleLogout = () => {
-    setUser(null);
-    localStorage.removeItem('currentUser');
-    setCurrentView('dashboard');
+  const fetchCapturas = async (params: { semana?: string; destajista_id?: string }) => {
+    setLoading(true);
+    try {
+      const query = new URLSearchParams();
+      if (params.semana) query.append('semana', params.semana);
+      if (params.destajista_id) query.append('destajista_id', params.destajista_id);
+      const res = await fetch(`/api/capturas?${query.toString()}`);
+      if (!res.ok) {
+        throw new Error('Error al cargar capturas');
+      }
+      const data = await res.json();
+      setCapturas(data);
+    } catch (error) {
+      console.error('Error fetching capturas:', error);
+      showNotification('Error al cargar capturas del servidor', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
-    const savedUser = localStorage.getItem('currentUser');
-    if (savedUser) setUser(JSON.parse(savedUser));
+    if (user) {
+      fetchInitialData();
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (user && currentView === 'manage-data') {
+      fetchInitialData();
+    }
+  }, [currentView, user]);
+
+  useEffect(() => {
+    if (user) {
+      if (currentView === 'summary-destajista' && filterDestajista) {
+        fetchCapturas({ destajista_id: filterDestajista });
+      } else if (currentView === 'summary-weekly') {
+        fetchCapturas({ semana: filterSemana });
+      } else if (currentView === 'delete-captures') {
+        fetchCapturas({ semana: filterSemana, destajista_id: filterDestajista });
+      }
+    }
+  }, [currentView, filterDestajista, filterSemana, user]);
+
+  useEffect(() => {
+    if (user && currentView === 'export') {
+      const fetchPreview = async () => {
+        const url = exportDestajista 
+          ? `/api/capturas?semana=${exportSemana}&destajista_id=${exportDestajista}`
+          : `/api/capturas?semana=${exportSemana}`;
+        const res = await fetch(url);
+        const data = await res.json();
+        setPreviewData(data);
+      };
+      fetchPreview();
+    }
+  }, [currentView, exportSemana, exportDestajista, user]);
+
+  useEffect(() => {
+    checkAuth();
   }, []);
 
-  const handleSaveUbicacion = (e: React.FormEvent) => {
+  const checkAuth = async () => {
+    try {
+      const res = await fetch('/api/auth/me');
+      const data = await res.json();
+      if (data) setUser(data);
+    } catch (e) {
+      console.error("Auth check failed", e);
+    }
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(loginData)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setUser(data.user);
+        setNotification({ message: 'Bienvenido de nuevo', type: 'success' });
+      } else {
+        setNotification({ message: data.error || 'Error al iniciar sesión', type: 'error' });
+      }
+    } catch (e) {
+      setNotification({ message: 'Error de conexión', type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      setUser(null);
+      setCurrentView('dashboard');
+    } catch (e) {
+      console.error("Logout failed", e);
+    }
+  };
+
+  const renderLogin = () => {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden bg-gradient-to-br from-[#86b347] via-[#a3cc6b] to-[#c5e39e]">
+        {/* Wavy Background Elements */}
+        <div className="absolute inset-0 z-0 opacity-30">
+          <svg className="absolute bottom-0 left-0 w-full h-auto" viewBox="0 0 1440 320" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M0,192L48,197.3C96,203,192,213,288,229.3C384,245,480,267,576,250.7C672,235,768,181,864,181.3C960,181,1056,235,1152,234.7C1248,235,1344,181,1392,154.7L1440,128L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z" fill="#ffffff" />
+          </svg>
+          <svg className="absolute top-0 left-0 w-full h-auto rotate-180" viewBox="0 0 1440 320" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M0,192L48,197.3C96,203,192,213,288,229.3C384,245,480,267,576,250.7C672,235,768,181,864,181.3C960,181,1056,235,1152,234.7C1248,235,1344,181,1392,154.7L1440,128L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z" fill="#ffffff" />
+          </svg>
+        </div>
+
+        <div className="z-10 text-center mb-8">
+          <h1 className="text-3xl font-bold text-[#4a7c1a] tracking-widest mb-1">VIVE POMOCA S.A. DE C.V.</h1>
+          <p className="text-sm font-medium text-[#4a7c1a] opacity-80 tracking-[0.2em]">"REPORTE DE DESTAJOS"</p>
+        </div>
+
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="bg-white rounded-[2rem] shadow-2xl p-10 w-full max-w-md z-10 mx-4"
+        >
+          <div className="flex flex-col items-center mb-8">
+            <div className="flex items-center gap-2 mb-6">
+              <div className="text-[#2b87e3] font-black text-4xl tracking-tighter flex items-baseline">
+                POM<span className="text-[#4a7c1a]">OCA</span>
+              </div>
+            </div>
+            <p className="text-xs text-gray-400 uppercase tracking-widest font-semibold">Poblaciones Modernas de Calidad</p>
+          </div>
+
+          <h2 className="text-xl font-bold text-gray-600 text-center mb-8">
+            Iniciar sesión
+          </h2>
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div className="relative">
+              <input 
+                type="text"
+                placeholder="Usuario"
+                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-all text-gray-700"
+                value={loginData.username}
+                onChange={e => setLoginData({...loginData, username: e.target.value})}
+                required
+              />
+            </div>
+            <div className="relative">
+              <input 
+                type="password"
+                placeholder="Contraseña"
+                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 transition-all text-gray-700"
+                value={loginData.password}
+                onChange={e => setLoginData({...loginData, password: e.target.value})}
+                required
+              />
+            </div>
+            <button 
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 bg-[#2b87e3] text-white font-bold rounded-lg hover:bg-blue-600 transition-all shadow-lg shadow-blue-200 disabled:opacity-50"
+            >
+              {loading ? 'Cargando...' : 'Entrar'}
+            </button>
+          </form>
+        </motion.div>
+
+        <div className="mt-12 z-10 text-[#4a7c1a] font-medium opacity-60">
+          ©2026
+        </div>
+
+        {/* Notification in Login */}
+        <AnimatePresence>
+          {notification && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className={cn(
+                "fixed bottom-8 px-6 py-3 rounded-xl shadow-xl font-medium z-50",
+                notification.type === 'success' ? "bg-emerald-600 text-white" : "bg-red-600 text-white"
+              )}
+            >
+              {notification.message}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  };
+
+  const handleSaveUbicacion = async (e: React.FormEvent) => {
     e.preventDefault();
     const lotes = newUbicacion.lote.split(',').map(l => l.trim()).filter(l => l !== '');
-    const currentUbicaciones = JSON.parse(localStorage.getItem('ubicaciones') || '[]');
     
-    const newItems = lotes.map((l, i) => ({
-      id: Date.now() + i,
+    const payload = lotes.map(l => ({
       paquete: newUbicacion.paquete,
       manzana: newUbicacion.manzana,
       lote: l
     }));
 
-    const updated = [...currentUbicaciones, ...newItems];
-    localStorage.setItem('ubicaciones', JSON.stringify(updated));
-    setUbicaciones(updated);
-    setNewUbicacion({ paquete: '', manzana: '', lote: '' });
-    showNotification('Ubicaciones agregadas con éxito');
-  };
-
-  const handleDeleteUbicacion = (id: number) => {
-    const updated = ubicaciones.filter(u => u.id !== id);
-    localStorage.setItem('ubicaciones', JSON.stringify(updated));
-    setUbicaciones(updated);
-    showNotification('Ubicación eliminada');
-    setConfirmDelete(null);
-  };
-
-  const handleSaveDestajista = (e: React.FormEvent) => {
-    e.preventDefault();
-    const current = JSON.parse(localStorage.getItem('destajistas') || '[]');
-    let updated;
-    if (editingDestajista) {
-      updated = current.map((d: any) => d.id === editingDestajista.id ? { ...d, nombre: newDestajistaName.toUpperCase() } : d);
+    const res = await fetch('/api/ubicaciones', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    
+    if (res.ok) {
+      setNewUbicacion({ paquete: '', manzana: '', lote: '' });
+      showNotification('Ubicaciones agregadas con éxito');
+      fetchInitialData();
     } else {
-      updated = [...current, { id: Date.now(), nombre: newDestajistaName.toUpperCase() }];
+      const data = await res.json();
+      showNotification(data.error || 'Error al guardar ubicación', 'error');
     }
-    localStorage.setItem('destajistas', JSON.stringify(updated));
-    setDestajistas(updated);
-    setNewDestajistaName('');
-    setEditingDestajista(null);
-    showNotification(editingDestajista ? 'Destajista actualizado' : 'Destajista agregado');
   };
 
-  const handleSaveActividad = (e: React.FormEvent) => {
-    e.preventDefault();
-    const current = JSON.parse(localStorage.getItem('actividades') || '[]');
-    let updated;
-    if (editingActividad) {
-      updated = current.map((a: any) => a.id === editingActividad.id ? { ...a, nombre: newActividad.nombre.toUpperCase(), precio: parseFloat(newActividad.precio) } : a);
-    } else {
-      updated = [...current, { id: Date.now(), nombre: newActividad.nombre.toUpperCase(), precio: parseFloat(newActividad.precio) }];
+  const handleDeleteUbicacion = async (id: number) => {
+    try {
+      setLoading(true);
+      const res = await fetch(`/api/ubicaciones/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        showNotification('Ubicación eliminada');
+        fetchInitialData();
+      } else {
+        showNotification('Error al eliminar ubicación', 'error');
+      }
+    } catch (error) {
+      showNotification('Error de conexión', 'error');
+    } finally {
+      setLoading(false);
+      setConfirmDelete(null);
     }
-    localStorage.setItem('actividades', JSON.stringify(updated));
-    setActividades(updated);
-    setNewActividad({ nombre: '', precio: '' });
-    setEditingActividad(null);
-    showNotification(editingActividad ? 'Actividad actualizada' : 'Actividad agregada');
   };
 
-  const handleDeleteDestajista = (id: number) => {
-    const updated = destajistas.filter(d => d.id !== id);
-    localStorage.setItem('destajistas', JSON.stringify(updated));
-    setDestajistas(updated);
-    showNotification('Destajista eliminado');
-    setConfirmDelete(null);
-  };
-
-  const handleDeleteActividad = (id: number) => {
-    const updated = actividades.filter(a => a.id !== id);
-    localStorage.setItem('actividades', JSON.stringify(updated));
-    setActividades(updated);
-    showNotification('Actividad eliminada');
-    setConfirmDelete(null);
-  };
-
-  const handleCaptureSubmit = (e: React.FormEvent) => {
+  const handleSaveDestajista = async (e: React.FormEvent) => {
     e.preventDefault();
+    const method = editingDestajista ? 'PUT' : 'POST';
+    const url = editingDestajista ? `/api/destajistas/${editingDestajista.id}` : '/api/destajistas';
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nombre: newDestajistaName })
+      });
+      if (res.ok) {
+        showNotification(editingDestajista ? 'Destajista actualizado' : 'Destajista agregado');
+        setNewDestajistaName('');
+        setEditingDestajista(null);
+        fetchInitialData();
+      } else {
+        const data = await res.json();
+        showNotification(data.error || 'Error al guardar destajista', 'error');
+      }
+    } catch (error) {
+      showNotification('Error de conexión', 'error');
+    }
+  };
+
+  const handleSaveActividad = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const method = editingActividad ? 'PUT' : 'POST';
+    const url = editingActividad ? `/api/actividades/${editingActividad.id}` : '/api/actividades';
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nombre: newActividad.nombre, precio: parseFloat(newActividad.precio) })
+      });
+      if (res.ok) {
+        showNotification(editingActividad ? 'Actividad actualizada' : 'Actividad agregada');
+        setNewActividad({ nombre: '', precio: '' });
+        setEditingActividad(null);
+        fetchInitialData();
+      } else {
+        const data = await res.json();
+        showNotification(data.error || 'Error al guardar actividad', 'error');
+      }
+    } catch (error) {
+      showNotification('Error de conexión', 'error');
+    }
+  };
+
+  const handleDeleteDestajista = async (id: number) => {
+    try {
+      setLoading(true);
+      const res = await fetch(`/api/destajistas/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        showNotification('Destajista eliminado');
+        fetchInitialData();
+      } else {
+        showNotification('Error al eliminar destajista', 'error');
+      }
+    } catch (error) {
+      showNotification('Error de conexión', 'error');
+    } finally {
+      setLoading(false);
+      setConfirmDelete(null);
+    }
+  };
+
+  const handleDeleteActividad = async (id: number) => {
+    try {
+      setLoading(true);
+      const res = await fetch(`/api/actividades/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        showNotification('Actividad eliminada');
+        fetchInitialData();
+      } else {
+        showNotification('Error al eliminar actividad', 'error');
+      }
+    } catch (error) {
+      showNotification('Error de conexión', 'error');
+    } finally {
+      setLoading(false);
+      setConfirmDelete(null);
+    }
+  };
+
+  const handleCaptureSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
     if (addedActivities.length === 0) {
       showNotification('Agrega al menos una actividad', 'error');
       return;
     }
 
-    const currentCapturas = JSON.parse(localStorage.getItem('capturas') || '[]');
-    const destajista = destajistas.find(d => d.id === parseInt(formData.destajista_id));
+    // Lote validation
+    const lotesDisponibles = ubicaciones
+      .filter(u => u.paquete === formData.paquete && u.manzana === formData.manzana)
+      .map(u => u.lote.toString());
     
-    const newCapturas = addedActivities.map((a, i) => {
-      const actividad = actividades.find(act => act.id === parseInt(a.actividad_id));
-      return {
-        id: Date.now() + i,
-        destajista_id: parseInt(formData.destajista_id),
-        actividad_id: parseInt(a.actividad_id),
-        paquete: formData.paquete,
-        manzana: formData.manzana,
-        lotes: formData.lotes,
-        semana: parseInt(formData.semana),
-        cantidad: parseFloat(a.cantidad),
-        fecha_creacion: new Date().toISOString(),
-        destajista_nombre: destajista?.nombre || '',
-        actividad_nombre: a.nombre,
-        precio: actividad?.precio || 0
-      };
-    });
+    const lotesIngresados = formData.lotes.split(',').map(l => l.trim()).filter(l => l !== '');
+    const lotesInvalidos = lotesIngresados.filter(l => !lotesDisponibles.includes(l));
 
-    const updated = [...currentCapturas, ...newCapturas];
-    localStorage.setItem('capturas', JSON.stringify(updated));
-    setCapturas(updated);
-    setFormData({
-      destajista_id: '',
-      paquete: '',
-      manzana: '',
-      lotes: '',
-      semana: formData.semana,
-    });
-    setAddedActivities([]);
-    setCurrentActivity({ actividad_id: '', cantidad: '' });
-    showNotification('Destajos capturados con éxito');
+    if (lotesInvalidos.length > 0) {
+      showNotification(`Los lotes ${lotesInvalidos.join(', ')} no pertenecen a la manzana ${formData.manzana}`, 'error');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const payload = addedActivities.map(a => ({
+        ...formData,
+        actividad_id: parseInt(a.actividad_id),
+        cantidad: parseFloat(a.cantidad),
+        semana: parseInt(formData.semana)
+      }));
+
+      const res = await fetch('/api/capturas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        showNotification('Destajos capturados con éxito');
+        setFormData({
+          destajista_id: '',
+          paquete: '',
+          manzana: '',
+          lotes: '',
+          semana: formData.semana, // Keep week for convenience
+        });
+        setAddedActivities([]);
+        setCurrentActivity({ actividad_id: '', cantidad: '' });
+      } else {
+        const err = await res.json();
+        showNotification(err.error || 'Error al guardar capturas', 'error');
+      }
+    } catch (error) {
+      console.error('Error saving captura:', error);
+      showNotification('Error de conexión', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const addActivityToList = () => {
@@ -410,14 +631,47 @@ export default function App() {
       showNotification('Selecciona actividad y cantidad', 'error');
       return;
     }
+
+    const lotesArray = formData.lotes.split(',').map(l => l.trim()).filter(l => l !== '');
+    const numLotes = lotesArray.length;
+    const cantidadIngresada = parseFloat(currentActivity.cantidad);
+
+    if (numLotes === 0) {
+      showNotification('Debes ingresar los lotes primero', 'error');
+      return;
+    }
+
+    // Validar que los lotes pertenezcan a la manzana (para evitar agregar si hay errores previos)
+    const lotesValidosManzana = ubicaciones
+      .filter(u => u.paquete === formData.paquete && u.manzana === formData.manzana)
+      .map(u => u.lote.toString());
+    
+    const tieneLotesInvalidos = lotesArray.some(l => !lotesValidosManzana.includes(l));
+    if (tieneLotesInvalidos) {
+      showNotification('No puedes agregar actividades si hay lotes inválidos para esta manzana', 'error');
+      return;
+    }
+
+    if (cantidadIngresada !== numLotes) {
+      showNotification(`La cantidad (${cantidadIngresada}) debe ser igual al número de lotes seleccionados (${numLotes})`, 'error');
+      return;
+    }
+
     const actividad = actividades.find(a => a.id === parseInt(currentActivity.actividad_id));
     if (!actividad) return;
+
+    // Check if activity is already in the list
+    if (addedActivities.some(a => a.actividad_id === currentActivity.actividad_id)) {
+      showNotification('Esta actividad ya está en la lista', 'error');
+      return;
+    }
 
     setAddedActivities([...addedActivities, {
       actividad_id: currentActivity.actividad_id,
       cantidad: currentActivity.cantidad,
       nombre: actividad.nombre
     }]);
+
     setCurrentActivity({ actividad_id: '', cantidad: '' });
   };
 
@@ -425,301 +679,1525 @@ export default function App() {
     setAddedActivities(addedActivities.filter((_, i) => i !== index));
   };
 
-  const handleDeleteCaptura = (id: number) => {
-    const updated = capturas.filter(c => c.id !== id);
-    localStorage.setItem('capturas', JSON.stringify(updated));
-    setCapturas(updated);
-    showNotification('Captura eliminada');
-    setConfirmDelete(null);
-  };
-
-  const handleEnterUserManagement = () => {
-    setShowAdminPassModal(true);
-  };
-
-  const handleAdminPassSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (adminPassInput === 'rabito31') {
-      setCurrentView('manage-users');
-      setShowAdminPassModal(false);
-      setAdminPassInput('');
-    } else {
-      showNotification('Contraseña incorrecta', 'error');
+  const handleDeleteCaptura = async (id: number) => {
+    try {
+      setLoading(true);
+      const res = await fetch(`/api/capturas/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        setCapturas(prev => prev.filter(c => c.id !== id));
+        showNotification('Captura eliminada correctamente');
+      } else {
+        const err = await res.json();
+        showNotification(err.error || 'Error al eliminar la captura', 'error');
+      }
+    } catch (error) {
+      console.error('Error deleting captura:', error);
+      showNotification('Error de conexión al eliminar', 'error');
+    } finally {
+      setLoading(false);
+      setConfirmDelete(null);
     }
-  };
-
-  const handleDeleteUser = (id: number) => {
-    const current = JSON.parse(localStorage.getItem('users') || '[]');
-    const updated = current.filter((u: any) => u.id !== id);
-    localStorage.setItem('users', JSON.stringify(updated));
-    setUsers(updated);
-    showNotification('Usuario eliminado');
-    setConfirmDelete(null);
   };
 
   const exportToExcel = async (data: Captura[], filename: string) => {
     const workbook = new ExcelJS.Workbook();
+
+    // Group data by destajista
     const groupedData: Record<string, Captura[]> = data.reduce((acc, curr) => {
-      if (!acc[curr.destajista_nombre]) acc[curr.destajista_nombre] = [];
+      if (!acc[curr.destajista_nombre]) {
+        acc[curr.destajista_nombre] = [];
+      }
       acc[curr.destajista_nombre].push(curr);
       return acc;
     }, {} as Record<string, Captura[]>);
 
     for (const [destajistaName, workerData] of Object.entries(groupedData)) {
-      let sheetName = destajistaName.split(' ').slice(0, 2).join(' ').substring(0, 31);
-      const worksheet = workbook.addWorksheet(sheetName || 'Reporte');
+      // Create sheet name: first and second name/surname, max 31 chars, clean invalid chars
+      let sheetName = destajistaName
+        .split(' ')
+        .filter(part => part.trim().length > 0)
+        .slice(0, 2)
+        .join(' ')
+        .replace(/[\\\/*?:\[\]]/g, '')
+        .substring(0, 31);
       
-      worksheet.columns = [
-        { header: 'PAQUETE', key: 'paquete', width: 10 },
-        { header: 'MZA', key: 'manzana', width: 10 },
-        { header: 'LOTE', key: 'lotes', width: 15 },
-        { header: 'ACTIVIDAD', key: 'actividad', width: 30 },
-        { header: 'CANTIDAD', key: 'cantidad', width: 10 },
-        { header: 'PRECIO', key: 'precio', width: 12 },
-        { header: 'TOTAL', key: 'total', width: 12 }
-      ];
+      if (!sheetName) sheetName = 'Reporte';
 
-      workerData.forEach(c => {
-        worksheet.addRow({
-          paquete: c.paquete,
-          manzana: c.manzana,
-          lotes: c.lotes,
-          actividad: c.actividad_nombre,
-          cantidad: c.cantidad,
-          precio: c.precio,
-          total: c.cantidad * c.precio
-        });
+      const worksheet = workbook.addWorksheet(sheetName);
+      const semana = workerData.length > 0 ? workerData[0].semana : 'N/A';
+
+      // Row 1: Header
+      worksheet.mergeCells('A1:F1');
+      const destajistaCell = worksheet.getCell('A1');
+      destajistaCell.value = `DESTAJISTA: ${destajistaName.toUpperCase()}`;
+      destajistaCell.font = { bold: true, size: 12 };
+      destajistaCell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFF4B084' } // Orange
+      };
+      destajistaCell.border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' }
+      };
+      destajistaCell.alignment = { vertical: 'middle', horizontal: 'left' };
+
+      const semanaLabelCell = worksheet.getCell('G1');
+      semanaLabelCell.value = 'SEMANA:';
+      semanaLabelCell.font = { bold: true };
+      semanaLabelCell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFF4B084' }
+      };
+      semanaLabelCell.border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' }
+      };
+      semanaLabelCell.alignment = { vertical: 'middle', horizontal: 'center' };
+
+      const semanaValueCell = worksheet.getCell('H1');
+      semanaValueCell.value = semana;
+      semanaValueCell.font = { bold: true };
+      semanaValueCell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFF4B084' }
+      };
+      semanaValueCell.border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' }
+      };
+      semanaValueCell.alignment = { vertical: 'middle', horizontal: 'center' };
+
+      // Row 3: Table Headers
+      const headers = ['PAQUETE', 'MZA', 'LOTE', 'ACTIVIDAD', 'CANTIDAD', 'PRECIO', 'TOTAL', 'SUMATORIA INFOTOOLS'];
+      const headerRow = worksheet.getRow(3);
+      headers.forEach((h, i) => {
+        const cell = headerRow.getCell(i + 1);
+        cell.value = h;
+        cell.font = { bold: true };
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFC6E0B4' } // Green
+        };
+        cell.border = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' }
+        };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
       });
+
+      // Data Rows
+      let totalImporte = 0;
+      workerData.forEach((c, index) => {
+        const rowNum = index + 4;
+        const row = worksheet.getRow(rowNum);
+        const importe = c.cantidad * c.precio;
+        totalImporte += importe;
+
+        row.getCell(1).value = c.paquete;
+        row.getCell(2).value = c.manzana;
+        row.getCell(3).value = c.lotes;
+        row.getCell(4).value = c.actividad_nombre;
+        row.getCell(5).value = c.cantidad;
+        row.getCell(6).value = c.precio;
+        row.getCell(7).value = importe;
+        row.getCell(8).value = ''; // SUMATORIA INFOTOOLS
+
+        for (let i = 1; i <= 8; i++) {
+          row.getCell(i).border = {
+            top: { style: 'thin' },
+            left: { style: 'thin' },
+            bottom: { style: 'thin' },
+            right: { style: 'thin' }
+          };
+          if (i === 5 || i === 6 || i === 7) {
+            row.getCell(i).alignment = { horizontal: 'right' };
+          } else {
+            row.getCell(i).alignment = { horizontal: 'center' };
+          }
+        }
+      });
+
+      // Total Row
+      const lastDataRow = workerData.length + 4;
+      const totalCell = worksheet.getCell(`G${lastDataRow}`);
+      totalCell.value = totalImporte;
+      totalCell.font = { bold: true };
+      totalCell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFFFFF00' } // Yellow
+      };
+      totalCell.border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' }
+      };
+      totalCell.alignment = { horizontal: 'right' };
+
+      // Column widths
+      worksheet.getColumn(1).width = 12; // PAQUETE
+      worksheet.getColumn(2).width = 8;  // MZA
+      worksheet.getColumn(3).width = 15; // LOTE
+      worksheet.getColumn(4).width = 45; // ACTIVIDAD
+      worksheet.getColumn(5).width = 12; // CANTIDAD
+      worksheet.getColumn(6).width = 12; // PRECIO
+      worksheet.getColumn(7).width = 15; // TOTAL
+      worksheet.getColumn(8).width = 25; // SUMATORIA INFOTOOLS
     }
 
+    // Generate buffer and download
     const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const url = window.URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = filename;
+    anchor.download = `${filename}.xlsx`;
     anchor.click();
     window.URL.revokeObjectURL(url);
   };
 
   const handleGenerateAiSummary = async () => {
-    if (previewData.length === 0) return;
+    if (capturas.length === 0) return;
     setAiLoading(true);
     try {
-      const summary = await generateWeeklySummary(previewData, exportSemana);
+      const summary = await generateWeeklySummary(capturas, filterSemana);
       setAiSummary(summary || 'No se pudo generar el resumen.');
     } catch (error) {
-      showNotification('Error al generar resumen IA', 'error');
+      showNotification('Error al generar resumen con IA', 'error');
     } finally {
       setAiLoading(false);
     }
   };
 
-  // Helper Components
-  const DashboardCard = ({ icon, title, description, onClick, className = "" }: { icon: React.ReactNode, title: string, description: string, onClick: () => void, className?: string }) => (
-    <motion.button
-      whileHover={{ scale: 1.02, y: -4 }}
-      whileTap={{ scale: 0.98 }}
-      onClick={onClick}
-      className={cn(
-        "bg-white dark:bg-zinc-900 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 text-left transition-all hover:shadow-md group",
-        className
-      )}
-    >
-      <div className="w-12 h-12 rounded-xl bg-gray-50 dark:bg-zinc-800 flex items-center justify-center mb-4 group-hover:bg-blue-50 dark:group-hover:bg-blue-900/20 transition-colors">
-        {icon}
+  const fetchUsers = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/users');
+      if (!res.ok) throw new Error('Error al cargar usuarios');
+      const data = await res.json();
+      setUsers(data);
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      showNotification('Error al cargar usuarios', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteUser = async (id: number) => {
+    try {
+      setLoading(true);
+      const res = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      
+      if (res.ok) {
+        showNotification('Usuario eliminado');
+        fetchUsers();
+      } else {
+        showNotification(data.error || 'Error al eliminar usuario', 'error');
+      }
+    } catch (error) {
+      showNotification('Error de conexión', 'error');
+    } finally {
+      setLoading(false);
+      setConfirmDelete(null);
+    }
+  };
+
+  const handleEnterUserManagement = () => {
+    if (user?.role === 'supervisor') {
+      setCurrentView('manage-users');
+    } else {
+      showNotification('Solicitando acceso de administrador...');
+      setShowAdminPassModal(true);
+      setAdminPassInput('');
+    }
+  };
+
+  const handleAdminPassSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (adminPassInput === 'rabito31') {
+      setShowAdminPassModal(false);
+      setCurrentView('manage-users');
+    } else {
+      showNotification('Contraseña incorrecta', 'error');
+    }
+  };
+
+  useEffect(() => {
+    if (user && currentView === 'manage-users') {
+      fetchUsers();
+    }
+  }, [currentView, user]);
+
+  const renderManageUsers = () => {
+    if (user?.role !== 'supervisor') {
+      return (
+        <div className="p-12 text-center">
+          <AlertCircle className="mx-auto text-red-500 mb-4" size={48} />
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Acceso Restringido</h2>
+          <p className="text-gray-500 dark:text-zinc-400 mb-6">Solo los supervisores pueden gestionar usuarios.</p>
+          <button onClick={() => setCurrentView('dashboard')} className="px-6 py-2 bg-blue-600 text-white rounded-lg">Volver al Inicio</button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="p-6 space-y-8 max-w-4xl mx-auto">
+        <div className="flex items-center gap-4 mb-4">
+        <button 
+          onClick={() => setCurrentView('dashboard')}
+          className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-md flex items-center justify-center"
+          title="Volver"
+        >
+          <ArrowLeft size={20} />
+        </button>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Gestión de Usuarios</h2>
       </div>
-      <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-1">{title}</h3>
-      <p className="text-sm text-gray-500 dark:text-zinc-400 leading-relaxed">{description}</p>
-    </motion.button>
+
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 p-8">
+        <h2 className="text-xl font-bold mb-6 flex items-center gap-2 dark:text-white">
+          <Plus className="text-blue-600 dark:text-blue-400" /> Registrar Nuevo Usuario
+        </h2>
+        <form onSubmit={async (e) => {
+          e.preventDefault();
+          setLoading(true);
+          try {
+            const res = await fetch('/api/auth/register', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(loginData)
+            });
+            const data = await res.json();
+            if (res.ok) {
+              showNotification('Usuario registrado con éxito');
+              setLoginData({ username: '', password: '', role: 'capturista' });
+              fetchUsers();
+            } else {
+              showNotification(data.error || 'Error al registrar usuario', 'error');
+            }
+          } catch (e) {
+            showNotification('Error de conexión', 'error');
+          } finally {
+            setLoading(false);
+          }
+        }} className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <input 
+            required
+            type="text"
+            placeholder="Nombre de usuario"
+            className="p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
+            value={loginData.username}
+            onChange={e => setLoginData({...loginData, username: e.target.value})}
+          />
+          <input 
+            required
+            type="password"
+            placeholder="Contraseña"
+            className="p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
+            value={loginData.password}
+            onChange={e => setLoginData({...loginData, password: e.target.value})}
+          />
+          <select 
+            required
+            className="p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
+            value={loginData.role}
+            onChange={e => setLoginData({...loginData, role: e.target.value})}
+          >
+            <option value="capturista">Capturista</option>
+            <option value="supervisor">Supervisor</option>
+          </select>
+          <button type="submit" className="py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors">
+            Registrar Usuario
+          </button>
+        </form>
+      </div>
+
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 overflow-hidden">
+        <div className="p-6 border-b border-gray-100 dark:border-zinc-800">
+          <h3 className="font-bold text-gray-900 dark:text-white">Usuarios Registrados</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-50 dark:bg-zinc-800/50">
+                <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Usuario</th>
+                <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Rol</th>
+                <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Fecha Registro</th>
+                <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-zinc-800">
+              {users.map(u => (
+                <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-zinc-800/50">
+                  <td className="p-4 flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-zinc-700 flex items-center justify-center">
+                      <User className="text-gray-500 dark:text-zinc-400" size={16} />
+                    </div>
+                    <span className="text-sm font-medium dark:text-zinc-200">{u.username}</span>
+                  </td>
+                  <td className="p-4">
+                    <span className={cn(
+                      "px-2 py-1 rounded-full text-[10px] font-bold uppercase",
+                      u.role === 'supervisor' ? "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400" : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                    )}>
+                      {u.role}
+                    </span>
+                  </td>
+                  <td className="p-4 text-sm text-gray-500 dark:text-zinc-400">
+                    {new Date(u.created_at).toLocaleDateString()}
+                  </td>
+                  <td className="p-4 text-right">
+                    <button 
+                      onClick={() => setConfirmDelete({ id: u.id, type: 'user' })}
+                      className="text-red-600 dark:text-red-400 hover:underline text-sm font-medium"
+                    >
+                      Eliminar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    );
+  };
+
+  const renderDashboard = () => (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
+      <DashboardCard 
+        icon={<FileText className="text-blue-600 dark:text-blue-400" />}
+        title="Captura de Destajos"
+        description="Registra nuevos destajos completados por los destajistas"
+        onClick={() => setCurrentView('capture')}
+      />
+      <DashboardCard 
+        icon={<Users className="text-green-600 dark:text-green-400" />}
+        title="Resumen por Destajista"
+        description="Consulta destajos capturados para un destajista específico"
+        onClick={() => setCurrentView('summary-destajista')}
+      />
+      <DashboardCard 
+        icon={<Calendar className="text-purple-600 dark:text-purple-400" />}
+        title="Resumen Semanal"
+        description="Consulta todos los destajos capturados en una semana"
+        onClick={() => setCurrentView('summary-weekly')}
+      />
+      <DashboardCard 
+        icon={<Trash2 className="text-red-600 dark:text-red-400" />}
+        title="Eliminar Capturas"
+        description="Busca y elimina capturas que contengan errores"
+        onClick={() => setCurrentView('delete-captures')}
+      />
+      <DashboardCard 
+        icon={<Download className="text-orange-600 dark:text-orange-400" />}
+        title="Exportar Reportes"
+        description="Genera y descarga reportes en formato Excel"
+        onClick={() => setCurrentView('export')}
+      />
+      <DashboardCard 
+        icon={<Plus className="text-gray-600 dark:text-zinc-400" />}
+        title="Configuración"
+        description="Edita los datos maestros (Destajistas, Actividades, etc.)"
+        onClick={() => {
+          if (user?.role === 'supervisor') {
+            setCurrentView('manage-data');
+          } else {
+            showNotification('Acceso denegado. Se requiere perfil de Supervisor.', 'error');
+          }
+        }}
+        className={user?.role !== 'supervisor' ? "opacity-60" : ""}
+      />
+      <DashboardCard 
+        icon={<Users className="text-indigo-600 dark:text-indigo-400" />}
+        title="Usuarios"
+        description="Administra los usuarios que tienen acceso al sistema"
+        onClick={() => {
+          if (user?.role === 'supervisor') {
+            handleEnterUserManagement();
+          } else {
+            showNotification('Acceso denegado. Se requiere perfil de Supervisor.', 'error');
+          }
+        }}
+        className={user?.role !== 'supervisor' ? "opacity-60" : ""}
+      />
+    </div>
   );
 
-  if (!user) {
+  const renderCaptureForm = () => {
+    const paquetes = Array.from(new Set(ubicaciones.map(u => u.paquete)));
+    const manzanas = Array.from(new Set(ubicaciones.filter(u => u.paquete === formData.paquete).map(u => u.manzana)));
+    const lotesDisponibles = ubicaciones.filter(u => u.paquete === formData.paquete && u.manzana === formData.manzana).map(u => u.lote);
+    const detectedLotesCount = formData.lotes.split(',').map(l => l.trim()).filter(l => l !== '').length;
+
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-[#86b347] via-[#a3cc6b] to-[#c5e39e] p-4">
-        <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-white rounded-[2rem] shadow-2xl p-10 w-full max-w-md">
-          <div className="text-center mb-8">
-            <h1 className="text-2xl font-bold text-[#4a7c1a] mb-2">VIVE POMOCA</h1>
-            <p className="text-sm text-gray-500 uppercase tracking-widest">Reporte de Destajos</p>
+      <div className="max-w-4xl mx-auto p-6">
+        <div className="flex items-center gap-4 mb-6">
+          <button 
+            onClick={() => setCurrentView('dashboard')}
+            className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-md flex items-center justify-center"
+            title="Volver"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Nueva Captura</h2>
+        </div>
+        
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 p-8">
+            <h2 className="text-xl font-semibold mb-2 dark:text-white">Datos Generales</h2>
+            <p className="text-gray-500 dark:text-zinc-400 text-sm mb-8">Información del destajista y ubicación</p>
+            
+            <div className="space-y-6">
+              <FormField label="Destajista *">
+                <select 
+                  required
+                  className="w-full p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:text-white"
+                  value={formData.destajista_id}
+                  onChange={e => setFormData({...formData, destajista_id: e.target.value})}
+                >
+                  <option value="">Selecciona un destajista</option>
+                  {destajistas.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+                </select>
+              </FormField>
+
+              <div className="grid grid-cols-2 gap-4">
+                <FormField label="Paquete *">
+                  <select 
+                    required
+                    className="w-full p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:text-white"
+                    value={formData.paquete}
+                    onChange={e => setFormData({...formData, paquete: e.target.value, manzana: '', lotes: ''})}
+                  >
+                    <option value="">Selecciona un paquete</option>
+                    {paquetes.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </FormField>
+                <FormField label="Manzana *">
+                  <select 
+                    required
+                    disabled={!formData.paquete}
+                    className="w-full p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all disabled:opacity-50 dark:text-white"
+                    value={formData.manzana}
+                    onChange={e => setFormData({...formData, manzana: e.target.value, lotes: ''})}
+                  >
+                    <option value="">Selecciona una manzana</option>
+                    {manzanas.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </FormField>
+              </div>
+
+              <FormField label={`Lotes (separados por coma) ${detectedLotesCount > 0 ? `[${detectedLotesCount} detectados]` : ''} *`}>
+                <input 
+                  required
+                  type="text"
+                  placeholder="Ej: 1, 2, 3"
+                  className={`w-full p-3 bg-gray-50 dark:bg-zinc-800 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:text-white ${
+                    formData.lotes && formData.lotes.split(',').map(l => l.trim()).filter(l => l !== '').some(l => !ubicaciones.filter(u => u.paquete === formData.paquete && u.manzana === formData.manzana).map(u => u.lote.toString()).includes(l))
+                    ? 'border-red-500 bg-red-50 dark:bg-red-900/20' : 'border-gray-200 dark:border-zinc-700'
+                  }`}
+                  value={formData.lotes}
+                  onChange={e => setFormData({...formData, lotes: e.target.value})}
+                />
+                {formData.lotes && formData.lotes.split(',').map(l => l.trim()).filter(l => l !== '').some(l => !ubicaciones.filter(u => u.paquete === formData.paquete && u.manzana === formData.manzana).map(u => u.lote.toString()).includes(l)) && (
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium flex items-center gap-1">
+                    <AlertCircle size={12} /> Algunos lotes no pertenecen a esta manzana
+                  </p>
+                )}
+                <p className="text-xs text-gray-400 dark:text-zinc-500 mt-1">Lotes disponibles: {lotesDisponibles.join(', ') || 'Selecciona manzana'}</p>
+              </FormField>
+
+              <FormField label="Semana *">
+                <select 
+                  required
+                  className="w-full p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:text-white"
+                  value={formData.semana}
+                  onChange={e => setFormData({...formData, semana: e.target.value})}
+                >
+                  <option value="">Semana</option>
+                  {weeks.map(w => <option key={w} value={w}>Semana {w}</option>)}
+                </select>
+              </FormField>
+            </div>
           </div>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <input type="text" placeholder="Usuario" className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500" value={loginData.username} onChange={e => setLoginData({...loginData, username: e.target.value})} required />
-            <input type="password" placeholder="Contraseña" className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500" value={loginData.password} onChange={e => setLoginData({...loginData, password: e.target.value})} required />
-            <button type="submit" className="w-full py-3 bg-[#2b87e3] text-white font-bold rounded-xl hover:bg-blue-600 transition-all">Entrar</button>
-          </form>
-        </motion.div>
+
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 p-8">
+            <h2 className="text-xl font-semibold mb-2 dark:text-white">Resumen de Captura</h2>
+            <p className="text-gray-500 dark:text-zinc-400 text-sm mb-8">Lista de actividades a registrar</p>
+
+            <div className="space-y-4 mb-8">
+              <FormField label="Actividad *">
+                <select 
+                  className="w-full p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:text-white"
+                  value={currentActivity.actividad_id}
+                  onChange={e => setCurrentActivity({...currentActivity, actividad_id: e.target.value})}
+                >
+                  <option value="">Selecciona una actividad</option>
+                  {actividades.map(a => (
+                    <option key={a.id} value={a.id}>
+                      {a.nombre} - ${a.precio.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+              
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <FormField label={`Cantidad ${detectedLotesCount > 0 ? `(Debe ser ${detectedLotesCount})` : ''} *`}>
+                    <input 
+                      type="number"
+                      placeholder="Cantidad"
+                      className={`w-full p-3 bg-gray-50 dark:bg-zinc-800 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:text-white ${
+                        currentActivity.cantidad && detectedLotesCount > 0 && parseFloat(currentActivity.cantidad) !== detectedLotesCount
+                        ? 'border-red-500 bg-red-50 dark:bg-red-900/20' : 'border-gray-200 dark:border-zinc-700'
+                      }`}
+                      value={currentActivity.cantidad}
+                      onChange={e => setCurrentActivity({...currentActivity, cantidad: e.target.value})}
+                    />
+                    {currentActivity.cantidad && detectedLotesCount > 0 && parseFloat(currentActivity.cantidad) !== detectedLotesCount && (
+                      <p className="text-[10px] text-red-600 dark:text-red-400 mt-1 font-medium">
+                        Debe coincidir con los {detectedLotesCount} lotes
+                      </p>
+                    )}
+                  </FormField>
+                </div>
+                <div className="flex items-end">
+                  <button 
+                    type="button"
+                    onClick={addActivityToList}
+                    disabled={!currentActivity.actividad_id || !currentActivity.cantidad || (detectedLotesCount > 0 && parseFloat(currentActivity.cantidad) !== detectedLotesCount)}
+                    className="p-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Plus size={24} />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="border border-gray-100 dark:border-zinc-800 rounded-xl overflow-hidden mb-8">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-gray-50 dark:bg-zinc-800/50">
+                  <tr>
+                    <th className="p-3 font-semibold text-gray-500 dark:text-zinc-400">Actividad</th>
+                    <th className="p-3 font-semibold text-gray-500 dark:text-zinc-400 text-right">Cant.</th>
+                    <th className="p-3 font-semibold text-gray-500 dark:text-zinc-400 text-right">Subtotal</th>
+                    <th className="p-3 font-semibold text-gray-500 dark:text-zinc-400 text-center"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-zinc-800">
+                  {addedActivities.map((a, i) => {
+                    const activityObj = actividades.find(act => act.id === parseInt(a.actividad_id));
+                    const subtotal = activityObj ? activityObj.precio * parseFloat(a.cantidad) : 0;
+                    return (
+                      <tr key={i} className="hover:bg-gray-50 dark:hover:bg-zinc-800/50 transition-colors">
+                        <td className="p-3 font-medium dark:text-zinc-200">{a.nombre}</td>
+                        <td className="p-3 text-right font-bold text-blue-600 dark:text-blue-400">{a.cantidad}</td>
+                        <td className="p-3 text-right font-medium text-gray-600 dark:text-zinc-400">
+                          ${subtotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="p-3 text-center">
+                          <button 
+                            type="button"
+                            onClick={() => removeActivityFromList(i)} 
+                            className="p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {addedActivities.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="p-8 text-center text-gray-400 dark:text-zinc-600 italic">No hay actividades agregadas</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <button 
+              type="button"
+              onClick={handleCaptureSubmit}
+              disabled={
+                addedActivities.length === 0 || 
+                !formData.destajista_id || 
+                !formData.paquete || 
+                !formData.manzana || 
+                !formData.lotes || 
+                !formData.semana ||
+                formData.lotes.split(',').map(l => l.trim()).filter(l => l !== '').some(l => !ubicaciones.filter(u => u.paquete === formData.paquete && u.manzana === formData.manzana).map(u => u.lote.toString()).includes(l))
+              }
+              className="w-full py-4 bg-emerald-600 text-white font-semibold rounded-xl hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-100 dark:shadow-none disabled:opacity-50 disabled:shadow-none"
+            >
+              Guardar Captura Completa
+            </button>
+          </div>
+        </div>
       </div>
     );
-  }
+  };
+
+  const renderManageData = () => {
+    if (user?.role !== 'supervisor') {
+      return (
+        <div className="p-12 text-center">
+          <AlertCircle className="mx-auto text-red-500 mb-4" size={48} />
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Acceso Restringido</h2>
+          <p className="text-gray-500 dark:text-zinc-400 mb-6">Solo los supervisores pueden gestionar los datos maestros.</p>
+          <button onClick={() => setCurrentView('dashboard')} className="px-6 py-2 bg-blue-600 text-white rounded-lg">Volver al Inicio</button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="p-6 space-y-8 max-w-5xl mx-auto">
+        <div className="flex items-center gap-4 mb-4">
+          <button 
+            onClick={() => setCurrentView('dashboard')}
+            className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-md flex items-center justify-center"
+            title="Volver"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Configuración de Datos Maestros</h2>
+        </div>
+
+        <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 p-8">
+          <h2 className="text-xl font-bold mb-6 flex items-center gap-2 dark:text-white">
+            <Users className="text-blue-600 dark:text-blue-400" /> Gestionar Destajistas
+          </h2>
+          <form onSubmit={handleSaveDestajista} className="flex gap-4 mb-6">
+            <input 
+              required
+              type="text"
+              placeholder="Nombre del destajista"
+              className="flex-1 p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
+              value={newDestajistaName}
+              onChange={e => setNewDestajistaName(e.target.value)}
+            />
+            <button type="submit" className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors">
+              {editingDestajista ? 'Actualizar' : 'Agregar'}
+            </button>
+            {editingDestajista && (
+              <button type="button" onClick={() => {setEditingDestajista(null); setNewDestajistaName('');}} className="px-6 py-3 bg-gray-200 dark:bg-zinc-700 text-gray-700 dark:text-zinc-300 font-semibold rounded-xl">
+                Cancelar
+              </button>
+            )}
+          </form>
+          <div className="max-h-64 overflow-y-auto border border-gray-100 dark:border-zinc-800 rounded-xl">
+            <table className="w-full text-left">
+              <thead className="bg-gray-50 dark:bg-zinc-800/50 sticky top-0">
+                <tr>
+                  <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Nombre</th>
+                  <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase text-right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-zinc-800">
+                {(destajistas || []).map(d => (
+                  <tr key={d.id} className="hover:bg-gray-50 dark:hover:bg-zinc-800/50">
+                    <td className="p-4 text-sm dark:text-zinc-300">{d.nombre}</td>
+                    <td className="p-4 text-right space-x-2">
+                      <button onClick={() => {setEditingDestajista(d); setNewDestajistaName(d.nombre);}} className="text-blue-600 dark:text-blue-400 hover:underline text-sm">Editar</button>
+                      <button onClick={() => setConfirmDelete({ id: d.id, type: 'destajista' })} className="text-red-600 dark:text-red-400 hover:underline text-sm">Eliminar</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 p-8">
+          <h2 className="text-xl font-bold mb-6 flex items-center gap-2 dark:text-white">
+            <FileText className="text-green-600 dark:text-green-400" /> Gestionar Actividades
+          </h2>
+          <form onSubmit={handleSaveActividad} className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <input 
+              required
+              type="text"
+              placeholder="Nombre de la actividad"
+              className="md:col-span-1 p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
+              value={newActividad.nombre}
+              onChange={e => setNewActividad({...newActividad, nombre: e.target.value})}
+            />
+            <input 
+              required
+              type="number"
+              step="0.01"
+              placeholder="Precio"
+              className="p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
+              value={newActividad.precio}
+              onChange={e => setNewActividad({...newActividad, precio: e.target.value})}
+            />
+            <div className="flex gap-2">
+              <button type="submit" className="flex-1 py-3 bg-green-600 text-white font-semibold rounded-xl hover:bg-green-700 transition-colors">
+                {editingActividad ? 'Actualizar' : 'Agregar'}
+              </button>
+              {editingActividad && (
+                <button type="button" onClick={() => {setEditingActividad(null); setNewActividad({nombre:'', precio:''});}} className="px-4 py-3 bg-gray-200 dark:bg-zinc-700 text-gray-700 dark:text-zinc-300 font-semibold rounded-xl">
+                  X
+                </button>
+              )}
+            </div>
+          </form>
+          <div className="max-h-64 overflow-y-auto border border-gray-100 dark:border-zinc-800 rounded-xl">
+            <table className="w-full text-left">
+              <thead className="bg-gray-50 dark:bg-zinc-800/50 sticky top-0">
+                <tr>
+                  <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Actividad</th>
+                  <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase text-right">Precio</th>
+                  <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase text-right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-zinc-800">
+                {(actividades || []).map(a => (
+                  <tr key={a.id} className="hover:bg-gray-50 dark:hover:bg-zinc-800/50">
+                    <td className="p-4 text-sm dark:text-zinc-300">{a.nombre}</td>
+                    <td className="p-4 text-sm text-right dark:text-zinc-300">${a.precio.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
+                    <td className="p-4 text-right space-x-2">
+                      <button onClick={() => {setEditingActividad(a); setNewActividad({nombre: a.nombre, precio: a.precio.toString()});}} className="text-blue-600 dark:text-blue-400 hover:underline text-sm">Editar</button>
+                      <button onClick={() => setConfirmDelete({ id: a.id, type: 'actividad' })} className="text-red-600 dark:text-red-400 hover:underline text-sm">Eliminar</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 p-8">
+          <h2 className="text-xl font-bold mb-6 flex items-center gap-2 dark:text-white">
+            <Plus className="text-purple-600 dark:text-purple-400" /> Gestionar Ubicaciones
+          </h2>
+          <form onSubmit={handleSaveUbicacion} className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <input 
+              required
+              type="text"
+              placeholder="Paquete"
+              className="p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
+              value={newUbicacion.paquete}
+              onChange={e => setNewUbicacion({...newUbicacion, paquete: e.target.value})}
+            />
+            <input 
+              required
+              type="text"
+              placeholder="Manzana"
+              className="p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
+              value={newUbicacion.manzana}
+              onChange={e => setNewUbicacion({...newUbicacion, manzana: e.target.value})}
+            />
+            <input 
+              required
+              type="text"
+              placeholder="Lote"
+              className="p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
+              value={newUbicacion.lote}
+              onChange={e => setNewUbicacion({...newUbicacion, lote: e.target.value})}
+            />
+            <button type="submit" className="py-3 bg-purple-600 text-white font-semibold rounded-xl hover:bg-purple-700 transition-colors">
+              Agregar Ubicación
+            </button>
+          </form>
+          <div className="max-h-64 overflow-y-auto border border-gray-100 dark:border-zinc-800 rounded-xl">
+            <table className="w-full text-left">
+              <thead className="bg-gray-50 dark:bg-zinc-800/50 sticky top-0">
+                <tr>
+                  <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Paquete</th>
+                  <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Manzana</th>
+                  <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Lote</th>
+                  <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase text-right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-zinc-800">
+                {(ubicaciones || []).map(u => (
+                  <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-zinc-800/50">
+                    <td className="p-4 text-sm dark:text-zinc-300">{u.paquete}</td>
+                    <td className="p-4 text-sm dark:text-zinc-300">{u.manzana}</td>
+                    <td className="p-4 text-sm dark:text-zinc-300">{u.lote}</td>
+                    <td className="p-4 text-right">
+                      <button onClick={() => setConfirmDelete({ id: u.id, type: 'ubicacion' })} className="text-red-600 dark:text-red-400 hover:underline text-sm">Eliminar</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderDeleteCaptures = () => (
+    <div className="p-6 space-y-6 max-w-6xl mx-auto">
+      <div className="flex items-center gap-4 mb-4">
+        <button 
+          onClick={() => setCurrentView('dashboard')}
+          className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-md flex items-center justify-center"
+          title="Volver"
+        >
+          <ArrowLeft size={20} />
+        </button>
+        <h2 className="text-2xl font-bold text-red-600 dark:text-red-400">Eliminar Capturas Erróneas</h2>
+      </div>
+
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 p-6">
+        <p className="text-gray-500 dark:text-zinc-400 text-sm mb-6">Busca capturas por semana y destajista para eliminarlas permanentemente.</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <FormField label="Semana">
+            <select 
+              className="w-full p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl outline-none focus:ring-2 focus:ring-red-500 dark:text-white"
+              value={filterSemana}
+              onChange={e => setFilterSemana(e.target.value)}
+            >
+              <option value="">Todas las semanas</option>
+              {weeks.map(w => <option key={w} value={w}>Semana {w}</option>)}
+            </select>
+          </FormField>
+          <FormField label="Destajista (Opcional)">
+            <select 
+              className="w-full p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl outline-none focus:ring-2 focus:ring-red-500 dark:text-white"
+              value={filterDestajista}
+              onChange={e => setFilterDestajista(e.target.value)}
+            >
+              <option value="">Todos</option>
+              {destajistas.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+            </select>
+          </FormField>
+          <div className="flex items-end">
+            <button onClick={() => fetchCapturas({ semana: filterSemana, destajista_id: filterDestajista })} className="w-full py-3 bg-red-600 text-white font-semibold rounded-xl hover:bg-red-700 transition-colors">
+              Buscar Capturas
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 overflow-hidden">
+        <table className="w-full text-left">
+          <thead className="bg-gray-50 dark:bg-zinc-800/50">
+            <tr>
+              <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Destajista</th>
+              <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Actividad</th>
+              <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Ubicación</th>
+              <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase text-right">Cantidad</th>
+              <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase text-center">Acción</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100 dark:divide-zinc-800">
+            {capturas.map(c => (
+              <tr key={c.id} className="hover:bg-red-50 dark:hover:bg-red-900/10 transition-colors">
+                <td className="p-4 text-sm dark:text-zinc-300">{c.destajista_nombre}</td>
+                <td className="p-4 text-sm dark:text-zinc-300">{c.actividad_nombre}</td>
+                <td className="p-4 text-sm dark:text-zinc-300">{c.paquete}-{c.manzana}-{c.lotes}</td>
+                <td className="p-4 text-sm text-right dark:text-zinc-300">{c.cantidad}</td>
+                <td className="p-4 text-center">
+                  <button onClick={() => setConfirmDelete({ id: c.id, type: 'captura' })} className="p-2 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/20 rounded-lg transition-colors">
+                    <Trash2 size={18} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {capturas.length === 0 && (
+              <tr>
+                <td colSpan={5} className="p-12 text-center text-gray-500 dark:text-zinc-600">No se encontraron capturas con los filtros seleccionados.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const renderSummaryDestajista = () => {
+    const totalCantidad = capturas.reduce((acc, curr) => acc + curr.cantidad, 0);
+    const totalMonto = capturas.reduce((acc, curr) => acc + (curr.cantidad * curr.precio), 0);
+    const selectedDestajista = destajistas.find(d => d.id === parseInt(filterDestajista))?.nombre;
+
+    return (
+      <div className="p-6 space-y-6 max-w-6xl mx-auto">
+        <div className="flex items-center gap-4 mb-4">
+          <button 
+            onClick={() => setCurrentView('dashboard')}
+            className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-md flex items-center justify-center"
+            title="Volver"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Resumen por Destajista</h2>
+        </div>
+        <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 p-6">
+          <h2 className="text-lg font-semibold mb-4 dark:text-white">Seleccionar Destajista</h2>
+          <select 
+            className="w-full md:w-64 p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none dark:text-white"
+            value={filterDestajista}
+            onChange={e => setFilterDestajista(e.target.value)}
+          >
+            <option value="">Selecciona un destajista</option>
+            {destajistas.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+          </select>
+        </div>
+
+        {filterDestajista && (
+          <>
+            <div className="bg-blue-50 dark:bg-blue-900/10 rounded-2xl border border-blue-100 dark:border-blue-900/20 p-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+              <div>
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-white uppercase">{selectedDestajista}</h3>
+              </div>
+              <div className="flex gap-12">
+                <div>
+                  <p className="text-gray-500 dark:text-zinc-400 text-sm mb-1">Total Cantidad</p>
+                  <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{totalCantidad}</p>
+                </div>
+                <div>
+                  <p className="text-gray-500 dark:text-zinc-400 text-sm mb-1">Total Monto</p>
+                  <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">${totalMonto.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 overflow-hidden">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-gray-50 dark:bg-zinc-800/50 border-bottom border-gray-100 dark:border-zinc-800">
+                    <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">Paquete</th>
+                    <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">Manzana</th>
+                    <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">Lotes</th>
+                    <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">Actividad</th>
+                    <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider text-right">Cantidad</th>
+                    <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider text-right">Precio</th>
+                    <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider text-right">Importe</th>
+                    <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider text-center">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-zinc-800">
+                  {capturas.map(c => (
+                    <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-zinc-800/50 transition-colors">
+                      <td className="p-4 text-sm dark:text-zinc-300">{c.paquete}</td>
+                      <td className="p-4 text-sm dark:text-zinc-300">{c.manzana}</td>
+                      <td className="p-4 text-sm dark:text-zinc-300">{c.lotes}</td>
+                      <td className="p-4 text-sm font-medium dark:text-zinc-200">{c.actividad_nombre}</td>
+                      <td className="p-4 text-sm text-right dark:text-zinc-300">{c.cantidad}</td>
+                      <td className="p-4 text-sm text-right dark:text-zinc-300">${c.precio.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
+                      <td className="p-4 text-sm font-bold text-right dark:text-zinc-200">${(c.cantidad * c.precio).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
+                      <td className="p-4 text-center">
+                        <button 
+                          onClick={() => setConfirmDelete({ id: c.id, type: 'captura' })}
+                          className="p-2 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {capturas.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="p-12 text-center text-gray-500 dark:text-zinc-600">No hay capturas registradas para este destajista.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
+  const renderSummaryWeekly = () => {
+    // Group capturas by destajista
+    const grouped: Record<string, { items: Captura[], totalCantidad: number, totalMonto: number }> = capturas.reduce((acc, curr) => {
+      if (!acc[curr.destajista_nombre]) {
+        acc[curr.destajista_nombre] = {
+          items: [],
+          totalCantidad: 0,
+          totalMonto: 0
+        };
+      }
+      acc[curr.destajista_nombre].items.push(curr);
+      acc[curr.destajista_nombre].totalCantidad += curr.cantidad;
+      acc[curr.destajista_nombre].totalMonto += (curr.cantidad * curr.precio);
+      return acc;
+    }, {} as Record<string, { items: Captura[], totalCantidad: number, totalMonto: number }>);
+
+    return (
+      <div className="p-6 space-y-6 max-w-6xl mx-auto">
+        <div className="flex items-center gap-4 mb-4">
+          <button 
+            onClick={() => setCurrentView('dashboard')}
+            className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-md flex items-center justify-center"
+            title="Volver"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Resumen Semanal</h2>
+        </div>
+        <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 p-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex-1">
+              <h2 className="text-lg font-semibold mb-4 dark:text-white">Filtrar por Semana</h2>
+              <div className="flex gap-4">
+                <select 
+                  className="flex-1 max-w-xs p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none dark:text-white"
+                  value={filterSemana}
+                  onChange={e => {
+                    setFilterSemana(e.target.value);
+                    setAiSummary(null);
+                  }}
+                >
+                  <option value="">Todas las semanas</option>
+                  {weeks.map(w => <option key={w} value={w}>Semana {w}</option>)}
+                </select>
+                <button className="px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors">
+                  Buscar
+                </button>
+              </div>
+            </div>
+            
+            {capturas.length > 0 && (
+              <button 
+                onClick={handleGenerateAiSummary}
+                disabled={aiLoading}
+                className="flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-semibold rounded-xl hover:from-purple-700 hover:to-indigo-700 transition-all shadow-md disabled:opacity-50"
+              >
+                {aiLoading ? (
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <Sun size={20} className="text-yellow-300" />
+                )}
+                {aiLoading ? 'Generando...' : 'Resumen con IA'}
+              </button>
+            )}
+          </div>
+        </div>
+
+        <AnimatePresence>
+          {aiSummary && (
+            <motion.div 
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/50 rounded-2xl p-6 relative overflow-hidden"
+            >
+              <div className="absolute top-0 right-0 p-4 opacity-10">
+                <Sun size={80} className="text-indigo-600 dark:text-indigo-400" />
+              </div>
+              <div className="relative z-10">
+                <h3 className="text-indigo-900 dark:text-indigo-300 font-bold flex items-center gap-2 mb-3">
+                  <Sun size={18} className="text-yellow-500" /> Análisis Inteligente (Gemini Flash)
+                </h3>
+                <div className="text-indigo-800 dark:text-indigo-200 text-sm leading-relaxed whitespace-pre-wrap">
+                  {aiSummary}
+                </div>
+                <button 
+                  onClick={() => setAiSummary(null)}
+                  className="mt-4 text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
+                >
+                  Cerrar resumen
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {Object.entries(grouped).map(([nombre, data]) => (
+          <div key={nombre} className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 overflow-hidden">
+            <div className="p-6 border-b border-gray-100 dark:border-zinc-800">
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white uppercase mb-1">{nombre}</h3>
+              <p className="text-gray-500 dark:text-zinc-400 text-sm">Total: {data.totalCantidad} unidades | Monto: ${data.totalMonto.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-gray-50 dark:bg-zinc-800/50">
+                    <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">Paquete</th>
+                    <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">Manzana</th>
+                    <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">Lotes</th>
+                    <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">Actividad</th>
+                    <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider text-right">Cantidad</th>
+                    <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider text-right">Precio</th>
+                    <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase tracking-wider text-right">Importe</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-zinc-800">
+                  {data.items.map(c => (
+                    <tr key={c.id}>
+                      <td className="p-4 text-sm dark:text-zinc-300">{c.paquete}</td>
+                      <td className="p-4 text-sm dark:text-zinc-300">{c.manzana}</td>
+                      <td className="p-4 text-sm dark:text-zinc-300">{c.lotes}</td>
+                      <td className="p-4 text-sm dark:text-zinc-300">{c.actividad_nombre}</td>
+                      <td className="p-4 text-sm text-right dark:text-zinc-300">{c.cantidad}</td>
+                      <td className="p-4 text-sm text-right dark:text-zinc-300">${c.precio.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
+                      <td className="p-4 text-sm font-bold text-right dark:text-zinc-200">${(c.cantidad * c.precio).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
+
+        {Object.keys(grouped).length === 0 && (
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl p-12 text-center text-gray-500 dark:text-zinc-600 border border-gray-100 dark:border-zinc-800">
+            No hay capturas para la semana seleccionada.
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderExport = () => {
+    const handleExport = () => {
+      if (previewData.length === 0) return alert('No hay datos para exportar en el filtro seleccionado');
+      
+      const filename = exportDestajista 
+        ? `Reporte_${destajistas.find(d => d.id === parseInt(exportDestajista))?.nombre}_Semana_${exportSemana}`
+        : `Reporte_General_Semana_${exportSemana}`;
+        
+      exportToExcel(previewData, filename);
+    };
+
+    return (
+      <div className="p-6 max-w-6xl mx-auto space-y-8">
+        <div className="flex items-center gap-4 mb-4">
+          <button 
+            onClick={() => setCurrentView('dashboard')}
+            className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-md flex items-center justify-center"
+            title="Volver"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Exportar Reportes</h2>
+            <p className="text-gray-500 dark:text-zinc-400">Genera archivos Excel de las capturas realizadas</p>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 p-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
+            <FormField label="Semana">
+              <select 
+                className="w-full p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none dark:text-white"
+                value={exportSemana}
+                onChange={e => setExportSemana(e.target.value)}
+              >
+                <option value="">Todas las semanas</option>
+                {weeks.map(w => <option key={w} value={w}>Semana {w}</option>)}
+              </select>
+            </FormField>
+
+            <FormField label="Destajista (Opcional)">
+              <select 
+                className="w-full p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none dark:text-white"
+                value={exportDestajista}
+                onChange={e => setExportDestajista(e.target.value)}
+              >
+                <option value="">Todos los destajistas</option>
+                {destajistas.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+              </select>
+            </FormField>
+
+            <button 
+              onClick={handleExport}
+              className="w-full py-4 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-blue-100 dark:shadow-none"
+            >
+              <Download size={20} />
+              Descargar Excel ({previewData.length})
+            </button>
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-sm border border-gray-100 dark:border-zinc-800 overflow-hidden">
+          <div className="p-6 border-b border-gray-100 dark:border-zinc-800 bg-gray-50/50 dark:bg-zinc-800/50">
+            <h3 className="font-bold text-gray-900 dark:text-white">Vista Previa de Datos</h3>
+            <p className="text-sm text-gray-500 dark:text-zinc-400">Se exportarán {previewData.length} registros</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-gray-50 dark:bg-zinc-800/50">
+                  <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Destajista</th>
+                  <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Ubicación</th>
+                  <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase">Actividad</th>
+                  <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase text-right">Cant.</th>
+                  <th className="p-4 text-xs font-semibold text-gray-500 dark:text-zinc-400 uppercase text-right">Importe</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-zinc-800">
+                {previewData.map(c => (
+                  <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-zinc-800/50">
+                    <td className="p-4 text-sm font-medium dark:text-zinc-200">{c.destajista_nombre}</td>
+                    <td className="p-4 text-sm text-gray-600 dark:text-zinc-400">{c.paquete}-{c.manzana}-{c.lotes}</td>
+                    <td className="p-4 text-sm text-gray-600 dark:text-zinc-400">{c.actividad_nombre}</td>
+                    <td className="p-4 text-sm text-right dark:text-zinc-300">{c.cantidad}</td>
+                    <td className="p-4 text-sm text-right font-semibold dark:text-zinc-200">${(c.cantidad * c.precio).toLocaleString('es-MX')}</td>
+                  </tr>
+                ))}
+                {previewData.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="p-12 text-center text-gray-500 dark:text-zinc-600 italic">
+                      No hay capturas registradas para los filtros seleccionados.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  if (!user) return renderLogin();
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-black transition-colors font-sans text-gray-900 dark:text-zinc-100">
+    <div className="min-h-screen transition-colors duration-300">
       {/* Header */}
-      <header className="bg-white dark:bg-zinc-950 border-b border-gray-200 dark:border-zinc-900 sticky top-0 z-30 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="text-2xl font-black tracking-tighter text-blue-600 dark:text-blue-500">
-              POM<span className="text-green-600 dark:text-green-500">OCA</span>
-            </div>
-            <div className="h-6 w-px bg-gray-200 dark:bg-zinc-800 hidden sm:block" />
-            <h1 className="text-sm font-semibold text-gray-500 dark:text-zinc-400 hidden sm:block uppercase tracking-widest">
-              {currentView === 'dashboard' ? 'Dashboard' : currentView.replace('-', ' ')}
-            </h1>
+      <header className="bg-white dark:bg-zinc-900 border-b border-gray-200 dark:border-zinc-800 px-6 py-4 flex justify-between items-center sticky top-0 z-10">
+        <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentView('dashboard')}>
+          <div className="w-10 h-10 bg-white dark:bg-zinc-800 rounded-xl flex items-center justify-center shadow-sm border border-gray-100 dark:border-zinc-700">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-black dark:text-white">
+              <path d="M12 2L3.5 7V17L12 22L20.5 17V7L12 2Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <rect x="9" y="9" width="6" height="6" fill="currentColor" transform="rotate(45 12 12)"/>
+            </svg>
           </div>
-          <div className="flex items-center gap-3">
-            <button onClick={toggleTheme} className="p-2 rounded-xl hover:bg-gray-100 dark:hover:bg-zinc-900 transition-colors">
-              {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
-            </button>
-            <div className="flex items-center gap-3 pl-3 border-l border-gray-200 dark:border-zinc-800">
-              <div className="text-right hidden xs:block">
-                <p className="text-sm font-bold leading-none mb-1">{user.name}</p>
-                <p className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">{user.role}</p>
-              </div>
-              <button onClick={handleLogout} className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 rounded-xl transition-colors">
-                <LogOut size={20} />
+          <div>
+            <h1 className="text-xl font-bold tracking-tight dark:text-white">Sistema de Captura de Destajos</h1>
+            <div className="flex items-center gap-2">
+              <p className="text-xs text-gray-500 dark:text-zinc-400">Bienvenido, {user.name}</p>
+              <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
+              <button onClick={handleLogout} className="text-xs text-red-500 hover:underline flex items-center gap-1">
+                Cerrar sesión
               </button>
             </div>
           </div>
         </div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 mr-4 bg-gray-50 dark:bg-zinc-800 px-3 py-1.5 rounded-xl border border-gray-100 dark:border-zinc-700">
+            <div className="w-6 h-6 rounded-full bg-gray-200 dark:bg-zinc-700 flex items-center justify-center">
+              <User className="text-gray-500 dark:text-zinc-400" size={14} />
+            </div>
+            <div className="flex flex-col items-start leading-none">
+              <span className="text-sm font-medium dark:text-zinc-200">{user.name}</span>
+              <span className={cn(
+                "text-[9px] font-bold uppercase mt-0.5",
+                user.role === 'supervisor' ? "text-purple-600 dark:text-purple-400" : "text-blue-600 dark:text-blue-400"
+              )}>
+                {user.role}
+              </span>
+            </div>
+          </div>
+          <button 
+            onClick={toggleTheme}
+            className="p-2 text-gray-600 dark:text-zinc-400 hover:bg-gray-100 dark:hover:bg-zinc-800 rounded-xl transition-colors border border-gray-200 dark:border-zinc-700"
+            title={theme === 'light' ? 'Cambiar a modo oscuro' : 'Cambiar a modo claro'}
+          >
+            {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+          </button>
+        </div>
       </header>
 
-      <main className="max-w-7xl mx-auto p-6">
-        {currentView === 'dashboard' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <DashboardCard icon={<Plus className="text-blue-600" />} title="Capturar Destajo" description="Registra nuevas actividades realizadas por los trabajadores" onClick={() => setCurrentView('capture')} />
-            <DashboardCard icon={<FileText className="text-emerald-600" />} title="Resumen por Destajista" description="Consulta el historial de pagos de un trabajador específico" onClick={() => setCurrentView('summary-destajista')} />
-            <DashboardCard icon={<Calendar className="text-orange-600" />} title="Resumen Semanal" description="Visualiza todas las capturas realizadas en una semana" onClick={() => setCurrentView('summary-weekly')} />
-            <DashboardCard icon={<Download className="text-purple-600" />} title="Exportar Reportes" description="Genera archivos Excel y resúmenes con IA para administración" onClick={() => setCurrentView('export')} />
-            <DashboardCard icon={<FileSpreadsheet className="text-indigo-600" />} title="Maestros de Datos" description="Gestiona destajistas, actividades y ubicaciones del sistema" onClick={() => setCurrentView('manage-data')} />
-            <DashboardCard icon={<Trash2 className="text-red-600" />} title="Eliminar Capturas" description="Corrige errores eliminando registros de destajos" onClick={() => setCurrentView('delete-captures')} />
-            <DashboardCard icon={<User className="text-gray-600" />} title="Usuarios" description="Administra accesos al sistema" onClick={handleEnterUserManagement} />
-          </div>
-        )}
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto py-8 relative">
+        {/* Notifications */}
+        <AnimatePresence>
+          {notification && (
+            <motion.div
+              initial={{ opacity: 0, y: -20, x: '-50%' }}
+              animate={{ opacity: 1, y: 20, x: '-50%' }}
+              exit={{ opacity: 0, y: -20, x: '-50%' }}
+              className={cn(
+                "fixed top-4 left-1/2 z-[100] px-6 py-3 rounded-xl shadow-2xl font-medium flex items-center gap-3 min-w-[300px] justify-center",
+                notification.type === 'success' ? "bg-emerald-600 text-white" : "bg-red-600 text-white"
+              )}
+            >
+              {notification.type === 'success' ? (
+                <div className="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center">✓</div>
+              ) : (
+                <div className="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center">!</div>
+              )}
+              {notification.message}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        {currentView !== 'dashboard' && (
-          <div className="space-y-6">
-            <button onClick={() => setCurrentView('dashboard')} className="flex items-center gap-2 text-sm font-bold text-gray-500 hover:text-blue-600 transition-colors">
-              <ArrowLeft size={16} /> VOLVER AL DASHBOARD
-            </button>
-            
-            {currentView === 'capture' && (
-              <div className="bg-white dark:bg-zinc-950 p-8 rounded-3xl shadow-sm border border-gray-100 dark:border-zinc-900">
-                <h2 className="text-2xl font-bold mb-6">Nueva Captura</h2>
-                <form onSubmit={handleCaptureSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-4">
-                    <label className="block text-sm font-bold text-gray-700 dark:text-zinc-400 uppercase tracking-wider">Destajista</label>
-                    <select className="w-full p-3 bg-gray-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-xl" value={formData.destajista_id} onChange={e => setFormData({...formData, destajista_id: e.target.value})} required>
-                      <option value="">Seleccionar...</option>
-                      {destajistas.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
-                    </select>
-                  </div>
-                  <div className="space-y-4">
-                    <label className="block text-sm font-bold text-gray-700 dark:text-zinc-400 uppercase tracking-wider">Semana</label>
-                    <select className="w-full p-3 bg-gray-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-xl" value={formData.semana} onChange={e => setFormData({...formData, semana: e.target.value})} required>
-                      {weeks.map(w => <option key={w} value={w}>Semana {w}</option>)}
-                    </select>
-                  </div>
-                  <div className="space-y-4">
-                    <label className="block text-sm font-bold text-gray-700 dark:text-zinc-400 uppercase tracking-wider">Ubicación (P-M-L)</label>
-                    <div className="grid grid-cols-3 gap-2">
-                      <input type="text" placeholder="Paq" className="p-3 bg-gray-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-xl" value={formData.paquete} onChange={e => setFormData({...formData, paquete: e.target.value.toUpperCase()})} required />
-                      <input type="text" placeholder="Mza" className="p-3 bg-gray-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-xl" value={formData.manzana} onChange={e => setFormData({...formData, manzana: e.target.value})} required />
-                      <input type="text" placeholder="Lotes" className="p-3 bg-gray-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-xl" value={formData.lotes} onChange={e => setFormData({...formData, lotes: e.target.value})} required />
-                    </div>
-                  </div>
-                  <div className="md:col-span-2 border-t border-gray-100 dark:border-zinc-900 pt-6">
-                    <h3 className="font-bold mb-4">Actividades</h3>
-                    <div className="flex gap-4 mb-4">
-                      <select className="flex-1 p-3 bg-gray-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-xl" value={currentActivity.actividad_id} onChange={e => setCurrentActivity({...currentActivity, actividad_id: e.target.value})}>
-                        <option value="">Seleccionar Actividad...</option>
-                        {actividades.map(a => <option key={a.id} value={a.id}>{a.nombre} (${a.precio})</option>)}
-                      </select>
-                      <input type="number" placeholder="Cant" className="w-24 p-3 bg-gray-50 dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-xl" value={currentActivity.cantidad} onChange={e => setCurrentActivity({...currentActivity, cantidad: e.target.value})} />
-                      <button type="button" onClick={addActivityToList} className="p-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700"><Plus size={20} /></button>
-                    </div>
-                    <div className="space-y-2">
-                      {addedActivities.map((a, i) => (
-                        <div key={i} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-zinc-900 rounded-xl">
-                          <span>{a.nombre} (x{a.cantidad})</span>
-                          <button type="button" onClick={() => removeActivityFromList(i)} className="text-red-500"><Trash2 size={16} /></button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  <button type="submit" className="md:col-span-2 py-4 bg-blue-600 text-white font-bold rounded-2xl hover:bg-blue-700 shadow-lg shadow-blue-200 dark:shadow-none mt-4">GUARDAR CAPTURA</button>
-                </form>
-              </div>
-            )}
-
-            {currentView === 'summary-weekly' && (
-              <div className="space-y-6">
-                <div className="flex items-center gap-4 bg-white dark:bg-zinc-950 p-6 rounded-3xl shadow-sm border border-gray-100 dark:border-zinc-900">
-                  <Calendar className="text-blue-600" />
-                  <select className="p-2 bg-transparent border-none font-bold text-lg outline-none" value={filterSemana} onChange={e => setFilterSemana(e.target.value)}>
-                    {weeks.map(w => <option key={w} value={w}>Semana {w}</option>)}
-                  </select>
+        {/* Confirmation Modal */}
+        <AnimatePresence>
+          {confirmDelete !== null && (
+            <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/40 dark:bg-black/60 backdrop-blur-sm">
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-white dark:bg-zinc-900 rounded-2xl p-8 max-w-sm w-full shadow-2xl"
+              >
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
+                  {confirmDelete.type === 'captura' ? '¿Eliminar captura?' : 
+                   confirmDelete.type === 'destajista' ? '¿Eliminar destajista?' :
+                   confirmDelete.type === 'actividad' ? '¿Eliminar actividad?' :
+                   confirmDelete.type === 'ubicacion' ? '¿Eliminar ubicación?' :
+                   '¿Eliminar usuario?'}
+                </h3>
+                <p className="text-gray-500 dark:text-zinc-400 mb-6">
+                  {confirmDelete.type === 'destajista' || confirmDelete.type === 'actividad' 
+                    ? 'Esta acción eliminará también todas las capturas asociadas. ¿Estás seguro?' 
+                    : 'Esta acción no se puede deshacer. ¿Estás seguro?'}
+                </p>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => setConfirmDelete(null)}
+                    className="flex-1 py-3 bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-zinc-400 font-semibold rounded-xl hover:bg-gray-200 dark:hover:bg-zinc-700 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    onClick={() => {
+                      if (confirmDelete.type === 'captura') handleDeleteCaptura(confirmDelete.id);
+                      else if (confirmDelete.type === 'destajista') handleDeleteDestajista(confirmDelete.id);
+                      else if (confirmDelete.type === 'actividad') handleDeleteActividad(confirmDelete.id);
+                      else if (confirmDelete.type === 'ubicacion') handleDeleteUbicacion(confirmDelete.id);
+                      else if (confirmDelete.type === 'user') handleDeleteUser(confirmDelete.id);
+                    }}
+                    className="flex-1 py-3 bg-red-600 text-white font-semibold rounded-xl hover:bg-red-700 transition-colors shadow-lg shadow-red-200 dark:shadow-none"
+                  >
+                    Eliminar
+                  </button>
                 </div>
-                <div className="bg-white dark:bg-zinc-950 rounded-3xl shadow-sm border border-gray-100 dark:border-zinc-900 overflow-hidden">
-                  <table className="w-full text-left">
-                    <thead className="bg-gray-50 dark:bg-zinc-900 text-[10px] uppercase tracking-widest font-bold text-gray-500">
-                      <tr>
-                        <th className="px-6 py-4">Destajista</th>
-                        <th className="px-6 py-4">Ubicación</th>
-                        <th className="px-6 py-4">Actividad</th>
-                        <th className="px-6 py-4 text-right">Cantidad</th>
-                        <th className="px-6 py-4 text-right">Total</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100 dark:divide-zinc-900">
-                      {capturas.filter(c => c.semana === parseInt(filterSemana)).map(c => (
-                        <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-zinc-900/50 transition-colors">
-                          <td className="px-6 py-4 font-bold text-sm">{c.destajista_nombre}</td>
-                          <td className="px-6 py-4 text-sm">{c.paquete}-{c.manzana}-{c.lotes}</td>
-                          <td className="px-6 py-4 text-sm">{c.actividad_nombre}</td>
-                          <td className="px-6 py-4 text-right text-sm">{c.cantidad}</td>
-                          <td className="px-6 py-4 text-right font-bold text-sm text-blue-600">${(c.cantidad * c.precio).toLocaleString()}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
 
-            {/* Other views would be implemented similarly using localStorage */}
-            <div className="p-12 text-center text-gray-400 italic">
-              Vista {currentView} simplificada para LocalStorage.
+        {loading && (
+          <div className="absolute inset-0 bg-white/50 dark:bg-zinc-950/50 backdrop-blur-sm z-50 flex items-center justify-center rounded-3xl">
+            <div className="flex flex-col items-center gap-4">
+              <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+              <p className="text-blue-600 dark:text-blue-400 font-medium">Cargando datos...</p>
             </div>
           </div>
         )}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={currentView}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+          >
+            {currentView === 'dashboard' && renderDashboard()}
+            {currentView === 'capture' && renderCaptureForm()}
+            {currentView === 'summary-destajista' && renderSummaryDestajista()}
+            {currentView === 'summary-weekly' && renderSummaryWeekly()}
+            {currentView === 'export' && renderExport()}
+            {currentView === 'manage-data' && renderManageData()}
+            {currentView === 'delete-captures' && renderDeleteCaptures()}
+            {currentView === 'manage-users' && renderManageUsers()}
+          </motion.div>
+        </AnimatePresence>
       </main>
 
-      {/* Notification */}
-      <AnimatePresence>
-        {notification && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }} className={cn("fixed bottom-8 left-1/2 -translate-x-1/2 px-6 py-3 rounded-xl shadow-xl font-medium z-50", notification.type === 'success' ? "bg-emerald-600 text-white" : "bg-red-600 text-white")}>
-            {notification.message}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Floating Action Button for Dashboard */}
+      {currentView !== 'dashboard' && (
+        <button 
+          onClick={() => setCurrentView('dashboard')}
+          className="fixed bottom-8 right-8 w-14 h-14 bg-white dark:bg-zinc-900 shadow-2xl rounded-full flex items-center justify-center text-gray-600 dark:text-zinc-400 border border-gray-200 dark:border-zinc-800 hover:scale-110 transition-transform z-20"
+        >
+          <LayoutDashboard size={24} />
+        </button>
+      )}
 
-      {/* Admin Pass Modal */}
+      {/* Admin Password Modal */}
       <AnimatePresence>
         {showAdminPassModal && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white dark:bg-zinc-900 rounded-2xl p-8 max-w-sm w-full shadow-2xl">
-              <h3 className="text-xl font-bold mb-4">Acceso Restringido</h3>
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/40 dark:bg-black/60 backdrop-blur-sm">
+            <motion.div 
+              key="admin-pass-modal"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white dark:bg-zinc-900 rounded-2xl p-8 max-w-sm w-full shadow-2xl"
+            >
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
+                Acceso Restringido
+              </h3>
+              <p className="text-gray-500 dark:text-zinc-400 mb-6 text-sm">
+                Ingresa la contraseña de administrador para gestionar usuarios.
+              </p>
               <form onSubmit={handleAdminPassSubmit} className="space-y-4">
-                <input autoFocus required type="password" placeholder="Contraseña" className="w-full p-3 border rounded-xl outline-none" value={adminPassInput} onChange={e => setAdminPassInput(e.target.value)} />
+                <input 
+                  autoFocus
+                  required
+                  type="password"
+                  placeholder="Contraseña"
+                  className="w-full p-3 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 dark:text-white"
+                  value={adminPassInput}
+                  onChange={e => setAdminPassInput(e.target.value)}
+                />
                 <div className="flex gap-3">
-                  <button type="button" onClick={() => setShowAdminPassModal(false)} className="flex-1 py-3 bg-gray-100 rounded-xl">Cancelar</button>
-                  <button type="submit" className="flex-1 py-3 bg-blue-600 text-white rounded-xl">Entrar</button>
+                  <button 
+                    type="button"
+                    onClick={() => setShowAdminPassModal(false)}
+                    className="flex-1 py-3 bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-zinc-400 font-semibold rounded-xl hover:bg-gray-200 dark:hover:bg-zinc-700 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button 
+                    type="submit"
+                    className="flex-1 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200 dark:shadow-none"
+                  >
+                    Entrar
+                  </button>
                 </div>
               </form>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+// Sub-components
+function DashboardCard({ icon, title, description, onClick, className }: { icon: React.ReactNode, title: string, description: string, onClick: () => void, className?: string }) {
+  return (
+    <button 
+      onClick={onClick}
+      className={cn(
+        "bg-white dark:bg-zinc-900 p-8 rounded-3xl border border-gray-100 dark:border-zinc-800 shadow-sm hover:shadow-xl dark:hover:shadow-zinc-900/50 hover:-translate-y-1 transition-all text-left flex flex-col h-full group cursor-pointer",
+        className
+      )}
+    >
+      <div className="w-14 h-14 bg-gray-50 dark:bg-zinc-800 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+        {React.cloneElement(icon as React.ReactElement, { size: 28 })}
+      </div>
+      <h3 className="text-xl font-bold mb-3 text-gray-900 dark:text-white">{title}</h3>
+      <p className="text-gray-500 dark:text-zinc-400 text-sm leading-relaxed mb-6">{description}</p>
+      <div className="mt-auto flex items-center text-blue-600 dark:text-blue-400 font-semibold text-sm">
+        Ingresar <ChevronRight size={16} className="ml-1" />
+      </div>
+    </button>
+  );
+}
+
+function FormField({ label, children }: { label: string, children: React.ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <label className="block text-sm font-semibold text-gray-700 dark:text-zinc-300">{label}</label>
+      {children}
     </div>
   );
 }
