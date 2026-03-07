@@ -2,7 +2,8 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import { createServer as createHttpServer } from "http";
 import { Server } from "socket.io";
-import mysql from "mysql2/promise";
+import { Pool } from "pg";
+import { PrismaClient } from "./src/generated/prisma";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
@@ -11,118 +12,106 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
+const prisma = new PrismaClient();
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const pool = mysql.createPool(process.env.MYSQL_URL || "mysql://root:password@localhost:3306/destajos");
-
 // Initialize Database
-async function initDb() {
-  const connection = await pool.getConnection();
+const initDb = async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS destajistas (
+      id SERIAL PRIMARY KEY,
+      nombre TEXT NOT NULL UNIQUE
+    );
+
+    CREATE TABLE IF NOT EXISTS actividades (
+      id SERIAL PRIMARY KEY,
+      nombre TEXT NOT NULL UNIQUE,
+      precio REAL NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS ubicaciones (
+      id SERIAL PRIMARY KEY,
+      paquete TEXT NOT NULL,
+      manzana TEXT NOT NULL,
+      lote TEXT NOT NULL,
+      UNIQUE(paquete, manzana, lote)
+    );
+
+    CREATE TABLE IF NOT EXISTS capturas (
+      id SERIAL PRIMARY KEY,
+      destajista_id INTEGER NOT NULL,
+      actividad_id INTEGER NOT NULL,
+      paquete TEXT NOT NULL,
+      manzana TEXT NOT NULL,
+      lotes TEXT NOT NULL,
+      semana INTEGER NOT NULL,
+      cantidad INTEGER NOT NULL,
+      usuario_nombre TEXT,
+      usuario_avatar TEXT,
+      fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (destajista_id) REFERENCES destajistas (id),
+      FOREIGN KEY (actividad_id) REFERENCES actividades (id)
+    );
+
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      username TEXT NOT NULL UNIQUE,
+      password TEXT NOT NULL,
+      avatar TEXT,
+      role TEXT DEFAULT 'supervisor',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+};
+initDb();
+
+// Migration to add user columns if they don't exist
+const runMigrations = async () => {
   try {
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS destajistas (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        nombre VARCHAR(255) NOT NULL UNIQUE
-      )
-    `);
-
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS actividades (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        nombre VARCHAR(255) NOT NULL UNIQUE,
-        precio DECIMAL(10, 2) NOT NULL
-      )
-    `);
-
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS ubicaciones (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        paquete VARCHAR(50) NOT NULL,
-        manzana VARCHAR(50) NOT NULL,
-        lote VARCHAR(50) NOT NULL,
-        UNIQUE(paquete, manzana, lote)
-      )
-    `);
-
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS capturas (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        destajista_id INT NOT NULL,
-        actividad_id INT NOT NULL,
-        paquete VARCHAR(50) NOT NULL,
-        manzana VARCHAR(50) NOT NULL,
-        lotes TEXT NOT NULL,
-        semana INT NOT NULL,
-        cantidad INT NOT NULL,
-        usuario_nombre VARCHAR(255),
-        usuario_avatar TEXT,
-        fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (destajista_id) REFERENCES destajistas (id),
-        FOREIGN KEY (actividad_id) REFERENCES actividades (id)
-      )
-    `);
-
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        username VARCHAR(255) NOT NULL UNIQUE,
-        password VARCHAR(255) NOT NULL,
-        avatar TEXT,
-        role VARCHAR(50) DEFAULT 'supervisor',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    // Migration to add user columns if they don't exist
-    try {
-      await connection.query("ALTER TABLE capturas ADD COLUMN usuario_nombre VARCHAR(255)");
-    } catch (e) {}
-    try {
-      await connection.query("ALTER TABLE capturas ADD COLUMN usuario_avatar TEXT");
-    } catch (e) {}
-    try {
-      await connection.query("ALTER TABLE users ADD COLUMN role VARCHAR(50) DEFAULT 'supervisor'");
-    } catch (e) {}
-
-    await seedData(connection);
-  } catch (error) {
-    console.error("Database initialization error:", error);
-  } finally {
-    connection.release();
+    await pool.query("ALTER TABLE capturas ADD COLUMN IF NOT EXISTS usuario_nombre TEXT");
+    await pool.query("ALTER TABLE capturas ADD COLUMN IF NOT EXISTS usuario_avatar TEXT");
+    await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'supervisor'");
+  } catch (e) {
+    console.error("Migration error:", e);
   }
-}
+};
+runMigrations();
 
 // Seed initial data
-const seedData = async (connection: mysql.PoolConnection) => {
-  // Clean up duplicates and ensure uniqueness
+const seedData = async () => {
   try {
     // 1. Normalize names (trim and uppercase) for existing data
-    await connection.query(`UPDATE destajistas SET nombre = UPPER(TRIM(nombre))`);
+    await pool.query(`UPDATE destajistas SET nombre = UPPER(TRIM(nombre))`);
     
     // 2. Delete duplicates keeping only the one with the lowest ID
-    await connection.query(`
+    await pool.query(`
       DELETE FROM destajistas 
       WHERE id NOT IN (
-        SELECT id FROM (
-          SELECT MIN(id) as id
-          FROM destajistas 
-          GROUP BY nombre
-        ) as t
+        SELECT MIN(id) 
+        FROM destajistas 
+        GROUP BY nombre
       )
     `);
     
-    // 3. Clean up duplicate activities
-    await connection.query(`
+    // 3. Create a unique index if it doesn't exist
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_destajistas_nombre ON destajistas(nombre)`);
+
+    // 4. Clean up duplicate activities
+    await pool.query(`
       DELETE FROM actividades 
       WHERE id NOT IN (
-        SELECT id FROM (
-          SELECT MIN(id) as id
-          FROM actividades 
-          GROUP BY nombre
-        ) as t
+        SELECT MIN(id) 
+        FROM actividades 
+        GROUP BY nombre
       )
     `);
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_actividades_nombre ON actividades(nombre)`);
   } catch (e) {
     console.error("Error cleaning up master data:", e);
   }
@@ -150,8 +139,8 @@ const seedData = async (connection: mysql.PoolConnection) => {
     "VICTOR MANUEL CASTILLO"
   ].map(n => n.trim().toUpperCase());
 
-  for (const n of destajistasList) {
-    await connection.query("INSERT IGNORE INTO destajistas (nombre) VALUES (?)", [n]);
+  for (const nombre of destajistasList) {
+    await pool.query("INSERT INTO destajistas (nombre) VALUES ($1) ON CONFLICT(nombre) DO NOTHING", [nombre]);
   }
 
   const actividadesList: [string, number][] = [
@@ -193,81 +182,20 @@ const seedData = async (connection: mysql.PoolConnection) => {
     ["CIMBRA EN MUROS", 600.00], ["DESMOLDE", 150.00], ["CURADO DE CONCRETO", 100.00]
   ];
   for (const [n, p] of actividadesList) {
-    await connection.query("INSERT IGNORE INTO actividades (nombre, precio) VALUES (?, ?)", [n.trim().toUpperCase(), p]);
-  }
-
-  const ubicacionesRaw = [
-    ["E", "98", "1"], ["E", "98", "2"], ["E", "98", "3"], ["E", "98", "4"], ["E", "98", "5"], ["E", "98", "6"], ["E", "98", "7"], ["E", "98", "8"], ["E", "98", "9"], ["E", "98", "10"], ["E", "98", "11"], ["E", "98", "12"], ["E", "98", "13"], ["E", "98", "14"],
-    ["E", "99", "1"], ["E", "99", "2"], ["E", "99", "3"], ["E", "99", "4"], ["E", "99", "5"], ["E", "99", "6"], ["E", "99", "7"], ["E", "99", "8"], ["E", "99", "9"], ["E", "99", "10"], ["E", "99", "11"], ["E", "99", "12"], ["E", "99", "13"], ["E", "99", "14"],
-    ["F", "100", "1"], ["F", "100", "2"], ["F", "100", "3"], ["F", "100", "4"], ["F", "100", "5"], ["F", "100", "6"], ["F", "100", "7"], ["F", "100", "8"], ["F", "100", "9"], ["F", "100", "10"], ["F", "100", "11"], ["F", "100", "12"], ["F", "100", "13"], ["F", "100", "14"],
-    ["F", "101", "1"], ["F", "101", "2"], ["F", "101", "3"], ["F", "101", "4"], ["F", "101", "5"],
-    ["F", "102", "1"], ["F", "102", "2"], ["F", "102", "3"], ["F", "102", "4"], ["F", "102", "5"], ["F", "102", "6"],
-    ["G", "102", "7"], ["G", "102", "8"], ["G", "102", "9"], ["G", "102", "10"],
-    ["G", "93", "1"], ["G", "93", "2"], ["G", "93", "3"], ["G", "93", "4"], ["G", "93", "5"], ["G", "93", "6"], ["G", "93", "7"], ["G", "93", "8"], ["G", "93", "9"], ["G", "93", "10"],
-    ["G", "94", "1"], ["G", "94", "2"], ["G", "94", "3"], ["G", "94", "4"], ["G", "94", "5"], ["G", "94", "6"], ["G", "94", "7"], ["G", "94", "8"], ["G", "94", "9"], ["G", "94", "10"],
-    ["G", "95", "1"], ["G", "95", "2"], ["G", "95", "3"], ["G", "95", "4"], ["G", "95", "5"], ["G", "95", "6"], ["G", "95", "7"], ["G", "95", "8"], ["G", "95", "9"], ["G", "95", "10"],
-    ["H", "88", "1"], ["H", "88", "2"], ["H", "88", "3"], ["H", "88", "4"], ["H", "88", "5"], ["H", "88", "6"], ["H", "88", "7"], ["H", "88", "8"], ["H", "88", "9"], ["H", "88", "10"],
-    ["H", "89", "1"], ["H", "89", "2"], ["H", "89", "3"], ["H", "89", "4"], ["H", "89", "5"], ["H", "89", "6"], ["H", "89", "7"], ["H", "89", "8"], ["H", "89", "9"], ["H", "89", "10"],
-    ["H", "96", "1"], ["H", "96", "2"], ["H", "96", "3"], ["H", "96", "4"], ["H", "96", "5"], ["H", "96", "6"], ["H", "96", "7"], ["H", "96", "8"], ["H", "96", "9"], ["H", "96", "10"],
-    ["I", "90", "1"], ["I", "90", "2"], ["I", "90", "3"], ["I", "90", "4"], ["I", "90", "5"], ["I", "90", "6"], ["I", "90", "7"], ["I", "90", "8"], ["I", "90", "9"], ["I", "90", "10"],
-    ["I", "91", "1"], ["I", "91", "2"], ["I", "91", "3"], ["I", "91", "4"], ["I", "91", "5"], ["I", "91", "6"], ["I", "91", "7"], ["I", "91", "8"], ["I", "91", "9"], ["I", "91", "10"],
-    ["I", "92", "1"], ["I", "92", "2"], ["I", "92", "3"], ["I", "92", "4"], ["I", "92", "5"], ["I", "92", "9"],
-    ["K", "103", "1"], ["K", "103", "2"], ["K", "103", "3"], ["K", "103", "4"], ["K", "103", "5"], ["K", "103", "6"], ["K", "103", "7"], ["K", "103", "8"], ["K", "103", "9"], ["K", "103", "10"], ["K", "103", "11"], ["K", "103", "12"], ["K", "103", "13"], ["K", "103", "14"], ["K", "103", "15"], ["K", "103", "16"], ["K", "103", "17"], ["K", "103", "18"], ["K", "103", "19"], ["K", "103", "20"], ["K", "103", "21"], ["K", "103", "22"], ["K", "103", "23"], ["K", "103", "24"], ["K", "103", "25"], ["K", "103", "26"],
-    ["O", "46", "3"], ["O", "46", "4"], ["O", "46", "5"], ["O", "46", "6"], ["O", "46", "7"], ["O", "46", "8"], ["O", "46", "9"],
-    ["O", "49", "1"], ["O", "49", "2"], ["O", "49", "3"], ["O", "49", "4"], ["O", "49", "5"], ["O", "49", "6"], ["O", "49", "7"], ["O", "49", "8"],
-    ["O", "50", "1"], ["O", "50", "2"], ["O", "50", "3"], ["O", "50", "4"], ["O", "50", "5"], ["O", "50", "6"], ["O", "50", "7"], ["O", "50", "8"],
-    ["O", "51", "1"], ["O", "51", "2"], ["O", "51", "3"], ["O", "51", "4"], ["O", "51", "10"], ["O", "51", "11"], ["O", "51", "12"], ["O", "51", "13"],
-    ["P", "47", "1"], ["P", "47", "2"], ["P", "47", "3"], ["P", "47", "4"], ["P", "47", "5"], ["P", "47", "6"], ["P", "47", "7"], ["P", "47", "8"],
-    ["P", "48", "1"], ["P", "48", "2"], ["P", "48", "3"], ["P", "48", "4"], ["P", "48", "5"], ["P", "48", "6"], ["P", "48", "7"], ["P", "48", "8"],
-    ["P", "54", "1"], ["P", "54", "2"], ["P", "54", "3"], ["P", "54", "4"], ["P", "54", "5"], ["P", "54", "6"], ["P", "54", "7"], ["P", "54", "8"], ["P", "54", "9"], ["P", "54", "10"],
-    ["P", "55", "1"], ["P", "55", "2"], ["P", "55", "3"], ["P", "55", "4"], ["P", "55", "5"], ["P", "55", "6"], ["P", "55", "7"], ["P", "55", "8"], ["P", "55", "9"], ["P", "55", "10"],
-    ["P", "56", "1"], ["P", "56", "2"], ["P", "56", "3"], ["P", "56", "4"], ["P", "56", "5"], ["P", "56", "6"], ["P", "56", "7"], ["P", "56", "8"], ["P", "56", "9"], ["P", "56", "10"],
-    ["Q", "52", "1"], ["Q", "52", "2"], ["Q", "52", "3"], ["Q", "52", "4"], ["Q", "52", "5"], ["Q", "52", "6"], ["Q", "52", "7"], ["Q", "52", "8"], ["Q", "52", "9"], ["Q", "52", "10"],
-    ["Q", "53", "1"], ["Q", "53", "2"], ["Q", "53", "3"], ["Q", "53", "4"], ["Q", "53", "5"], ["Q", "53", "6"], ["Q", "53", "7"], ["Q", "53", "8"], ["Q", "53", "9"], ["Q", "53", "10"],
-    ["Q", "60", "1"], ["Q", "60", "2"], ["Q", "60", "3"], ["Q", "60", "4"], ["Q", "60", "5"], ["Q", "60", "6"], ["Q", "60", "7"], ["Q", "60", "8"], ["Q", "60", "9"], ["Q", "60", "10"], ["Q", "60", "11"], ["Q", "60", "12"],
-    ["Q", "61", "1"], ["Q", "61", "2"], ["Q", "61", "3"], ["Q", "61", "4"], ["Q", "61", "5"], ["Q", "61", "6"], ["Q", "61", "7"], ["Q", "61", "8"], ["Q", "61", "9"], ["Q", "61", "10"], ["Q", "61", "11"], ["Q", "61", "12"]
-  ];
-  for (const [p, m, l] of ubicacionesRaw) {
-    await connection.query("INSERT IGNORE INTO ubicaciones (paquete, manzana, lote) VALUES (?, ?, ?)", [p, m, l]);
+    await pool.query("INSERT INTO actividades (nombre, precio) VALUES ($1, $2) ON CONFLICT(nombre) DO NOTHING", [n.trim().toUpperCase(), p]);
   }
 
   // Seed initial user
-  await connection.query("INSERT IGNORE INTO users (username, password, avatar, role) VALUES (?, ?, ?, ?)", ["ArmandoL", "rabito31", "https://api.dicebear.com/7.x/avataaars/svg?seed=ArmandoL", "supervisor"]);
-
-  // Add some sample captures if none exist
-  const [capturesCountRows] = await connection.query("SELECT COUNT(*) as count FROM capturas") as any;
-  if (capturesCountRows[0].count === 0) {
-    const [d1Rows] = await connection.query("SELECT id FROM destajistas LIMIT 1") as any;
-    const [a1Rows] = await connection.query("SELECT id FROM actividades LIMIT 1") as any;
-    if (d1Rows[0] && a1Rows[0]) {
-      await connection.query(`
-        INSERT INTO capturas (destajista_id, actividad_id, paquete, manzana, lotes, semana, cantidad)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `, [d1Rows[0].id, a1Rows[0].id, "E", "98", "1, 2", 1, 2]);
-    }
-  }
+  await pool.query("INSERT INTO users (username, password, avatar, role) VALUES ($1, $2, $3, $4) ON CONFLICT(username) DO NOTHING", 
+    ["ArmandoL", "rabito31", "https://api.dicebear.com/7.x/avataaars/svg?seed=ArmandoL", "supervisor"]);
 };
 
-async function startServer() {
-  console.log("Intentando conectar a MySQL...");
-  try {
-    const connection = await pool.getConnection();
-    console.log("✅ Conexión a MySQL establecida con éxito.");
-    connection.release();
-  } catch (error: any) {
-    console.error("❌ Error crítico al conectar a MySQL:");
-    console.error(`Mensaje: ${error.message}`);
-    console.error(`Código: ${error.code}`);
-    console.error("Asegúrate de que MYSQL_URL sea correcta y accesible.");
-    // No detenemos el servidor para permitir que Vite siga funcionando, 
-    // pero las rutas de API fallarán hasta que se corrija la conexión.
-  }
+seedData();
 
-  await initDb();
+async function startServer() {
   const app = express();
   const httpServer = createHttpServer(app);
   const io = new Server(httpServer, {
-    path: "/socket.io/",
     cors: {
       origin: "*",
       methods: ["GET", "POST"]
@@ -291,8 +219,8 @@ async function startServer() {
       return res.status(400).json({ error: "Usuario y contraseña son requeridos" });
     }
     
-    const [rows] = await pool.query("SELECT * FROM users WHERE username = ? AND password = ?", [username, password]) as any;
-    const user = rows[0];
+    const result = await pool.query("SELECT * FROM users WHERE username = $1 AND password = $2", [username, password]);
+    const user = result.rows[0];
     
     if (!user) {
       return res.status(401).json({ error: "Usuario o contraseña incorrectos" });
@@ -317,7 +245,7 @@ async function startServer() {
     try {
       const avatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`;
       const userRole = role || 'capturista';
-      await pool.query("INSERT INTO users (username, password, avatar, role) VALUES (?, ?, ?, ?)", [username, password, avatar, userRole]);
+      await pool.query("INSERT INTO users (username, password, avatar, role) VALUES ($1, $2, $3, $4)", [username, password, avatar, userRole]);
       res.json({ success: true });
     } catch (e) {
       res.status(400).json({ error: "El usuario ya existe" });
@@ -335,16 +263,16 @@ async function startServer() {
 
   // User Management Routes
   app.get("/api/users", async (req, res) => {
-    const [rows] = await pool.query("SELECT id, username, avatar, role, created_at FROM users ORDER BY username");
-    res.json(rows);
+    const result = await pool.query("SELECT id, username, avatar, role, created_at FROM users ORDER BY username");
+    res.json(result.rows);
   });
 
   app.delete("/api/users/:id", async (req, res) => {
     const id = req.params.id;
     try {
       // Don't allow deleting ArmandoL
-      const [rows] = await pool.query("SELECT username FROM users WHERE id = ?", [id]) as any;
-      const userToDelete = rows[0];
+      const userToDeleteResult = await pool.query("SELECT username FROM users WHERE id = $1", [id]);
+      const userToDelete = userToDeleteResult.rows[0];
       
       if (!userToDelete) {
         return res.status(404).json({ error: "Usuario no encontrado" });
@@ -354,8 +282,8 @@ async function startServer() {
         return res.status(403).json({ error: "No se puede eliminar el usuario administrador principal" });
       }
 
-      const [result] = await pool.query("DELETE FROM users WHERE id = ?", [id]) as any;
-      if (result.affectedRows > 0) {
+      const result = await pool.query("DELETE FROM users WHERE id = $1", [id]);
+      if (result.rowCount && result.rowCount > 0) {
         res.json({ success: true });
       } else {
         res.status(404).json({ error: "No se pudo eliminar el usuario" });
@@ -376,17 +304,19 @@ async function startServer() {
 
   // API Routes
   app.get("/api/destajistas", async (req, res) => {
-    const [rows] = await pool.query("SELECT * FROM destajistas ORDER BY nombre");
-    res.json(rows);
+    const destajistas = await prisma.destajista.findMany({ orderBy: { nombre: 'asc' } });
+    res.json(destajistas);
   });
 
   app.post("/api/destajistas", async (req, res) => {
     const { nombre } = req.body;
     const normalizedNombre = nombre.trim().toUpperCase();
     try {
-      const [result] = await pool.query("INSERT INTO destajistas (nombre) VALUES (?)", [normalizedNombre]) as any;
+      const destajista = await prisma.destajista.create({
+        data: { nombre: normalizedNombre }
+      });
       io.emit("data_changed", { type: "destajistas" });
-      res.json({ id: result.insertId });
+      res.json({ id: destajista.id });
     } catch (e) {
       res.status(400).json({ error: "El destajista ya existe" });
     }
@@ -396,7 +326,10 @@ async function startServer() {
     const { nombre } = req.body;
     const normalizedNombre = nombre.trim().toUpperCase();
     try {
-      await pool.query("UPDATE destajistas SET nombre = ? WHERE id = ?", [normalizedNombre, req.params.id]);
+      await prisma.destajista.update({
+        where: { id: parseInt(req.params.id) },
+        data: { nombre: normalizedNombre }
+      });
       io.emit("data_changed", { type: "destajistas" });
       res.json({ success: true });
     } catch (e) {
@@ -405,37 +338,32 @@ async function startServer() {
   });
 
   app.delete("/api/destajistas/:id", async (req, res) => {
-    const id = req.params.id;
-    const connection = await pool.getConnection();
+    const id = parseInt(req.params.id);
     try {
-      await connection.beginTransaction();
-      await connection.query("DELETE FROM capturas WHERE destajista_id = ?", [id]);
-      await connection.query("DELETE FROM destajistas WHERE id = ?", [id]);
-      await connection.commit();
-      
+      await prisma.$transaction([
+        prisma.destajo.deleteMany({ where: { destajistaId: id } }),
+        prisma.destajista.delete({ where: { id: id } })
+      ]);
       io.emit("data_changed", { type: "destajistas" });
       res.json({ success: true });
     } catch (e) {
-      await connection.rollback();
       console.error("Error deleting destajista:", e);
       res.status(500).json({ error: "Error al eliminar el destajista" });
-    } finally {
-      connection.release();
     }
   });
 
   app.get("/api/actividades", async (req, res) => {
-    const [rows] = await pool.query("SELECT * FROM actividades ORDER BY nombre");
-    res.json(rows);
+    const result = await pool.query("SELECT * FROM actividades ORDER BY nombre");
+    res.json(result.rows);
   });
 
   app.post("/api/actividades", async (req, res) => {
     const { nombre, precio } = req.body;
     const normalizedNombre = nombre.trim().toUpperCase();
     try {
-      const [result] = await pool.query("INSERT INTO actividades (nombre, precio) VALUES (?, ?)", [normalizedNombre, precio]) as any;
+      const result = await pool.query("INSERT INTO actividades (nombre, precio) VALUES ($1, $2) RETURNING id", [normalizedNombre, precio]);
       io.emit("data_changed", { type: "actividades" });
-      res.json({ id: result.insertId });
+      res.json({ id: result.rows[0].id });
     } catch (e) {
       res.status(400).json({ error: "La actividad ya existe" });
     }
@@ -445,7 +373,7 @@ async function startServer() {
     const { nombre, precio } = req.body;
     const normalizedNombre = nombre.trim().toUpperCase();
     try {
-      await pool.query("UPDATE actividades SET nombre = ?, precio = ? WHERE id = ?", [normalizedNombre, precio, req.params.id]);
+      await pool.query("UPDATE actividades SET nombre = $1, precio = $2 WHERE id = $3", [normalizedNombre, precio, req.params.id]);
       io.emit("data_changed", { type: "actividades" });
       res.json({ success: true });
     } catch (e) {
@@ -455,57 +383,64 @@ async function startServer() {
 
   app.delete("/api/actividades/:id", async (req, res) => {
     const id = req.params.id;
-    const connection = await pool.getConnection();
     try {
-      await connection.beginTransaction();
-      await connection.query("DELETE FROM capturas WHERE actividad_id = ?", [id]);
-      await connection.query("DELETE FROM actividades WHERE id = ?", [id]);
-      await connection.commit();
-      
-      io.emit("data_changed", { type: "actividades" });
-      res.json({ success: true });
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("DELETE FROM capturas WHERE actividad_id = $1", [id]);
+        await client.query("DELETE FROM actividades WHERE id = $1", [id]);
+        await client.query("COMMIT");
+        io.emit("data_changed", { type: "actividades" });
+        res.json({ success: true });
+      } catch (e) {
+        await client.query("ROLLBACK");
+        throw e;
+      } finally {
+        client.release();
+      }
     } catch (e) {
-      await connection.rollback();
       console.error("Error deleting actividad:", e);
       res.status(500).json({ error: "Error al eliminar la actividad" });
-    } finally {
-      connection.release();
     }
   });
 
   app.get("/api/ubicaciones", async (req, res) => {
-    const [rows] = await pool.query("SELECT * FROM ubicaciones ORDER BY paquete, manzana, lote");
-    res.json(rows);
+    const result = await pool.query("SELECT * FROM ubicaciones ORDER BY paquete, manzana, lote");
+    res.json(result.rows);
   });
 
   app.post("/api/ubicaciones", async (req, res) => {
     const data = req.body;
-    const connection = await pool.getConnection();
     try {
       if (Array.isArray(data)) {
-        await connection.beginTransaction();
-        for (const item of data) {
-          await connection.query("INSERT IGNORE INTO ubicaciones (paquete, manzana, lote) VALUES (?, ?, ?)", [item.paquete, item.manzana, item.lote]);
+        const client = await pool.connect();
+        try {
+          await client.query("BEGIN");
+          for (const item of data) {
+            await client.query("INSERT INTO ubicaciones (paquete, manzana, lote) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING", [item.paquete, item.manzana, item.lote]);
+          }
+          await client.query("COMMIT");
+          io.emit("data_changed", { type: "ubicaciones" });
+          res.json({ success: true, count: data.length });
+        } catch (e) {
+          await client.query("ROLLBACK");
+          throw e;
+        } finally {
+          client.release();
         }
-        await connection.commit();
-        io.emit("data_changed", { type: "ubicaciones" });
-        res.json({ success: true, count: data.length });
       } else {
         const { paquete, manzana, lote } = data;
-        const [result] = await connection.query("INSERT IGNORE INTO ubicaciones (paquete, manzana, lote) VALUES (?, ?, ?)", [paquete, manzana, lote]) as any;
+        const result = await pool.query("INSERT INTO ubicaciones (paquete, manzana, lote) VALUES ($1, $2, $3) RETURNING id", [paquete, manzana, lote]);
         io.emit("data_changed", { type: "ubicaciones" });
-        res.json({ id: result.insertId });
+        res.json({ id: result.rows[0].id });
       }
     } catch (e: any) {
-      if (Array.isArray(data)) await connection.rollback();
       res.status(400).json({ error: e.message });
-    } finally {
-      connection.release();
     }
   });
 
   app.delete("/api/ubicaciones/:id", async (req, res) => {
-    await pool.query("DELETE FROM ubicaciones WHERE id = ?", [req.params.id]);
+    await pool.query("DELETE FROM ubicaciones WHERE id = $1", [req.params.id]);
     io.emit("data_changed", { type: "ubicaciones" });
     res.json({ success: true });
   });
@@ -520,36 +455,36 @@ async function startServer() {
       WHERE 1=1
     `;
     const params: any[] = [];
+    let paramCount = 1;
 
     if (semana) {
-      query += " AND c.semana = ?";
+      query += ` AND c.semana = $${paramCount++}`;
       params.push(semana);
     }
     if (destajista_id) {
-      query += " AND c.destajista_id = ?";
+      query += ` AND c.destajista_id = $${paramCount++}`;
       params.push(destajista_id);
     }
 
     query += " ORDER BY c.fecha_creacion DESC";
-    const [rows] = await pool.query(query, params);
-    res.json(rows);
+    const result = await pool.query(query, params);
+    res.json(result.rows);
   });
 
   app.post("/api/capturas", async (req, res) => {
     const data = req.body;
     const user = req.session?.user;
-    const connection = await pool.getConnection();
     
     try {
       const checkDuplicate = async (destajista_id: number, actividad_id: number, paquete: string, manzana: string, lotes: string) => {
-        const [existing] = await connection.query(`
+        const result = await pool.query(`
           SELECT lotes FROM capturas 
-          WHERE destajista_id = ? AND actividad_id = ? AND paquete = ? AND manzana = ?
-        `, [destajista_id, actividad_id, paquete, manzana]) as any[];
+          WHERE destajista_id = $1 AND actividad_id = $2 AND paquete = $3 AND manzana = $4
+        `, [destajista_id, actividad_id, paquete, manzana]);
 
         const newLotes = lotes.split(',').map(l => l.trim()).filter(l => l !== "");
         
-        for (const row of existing) {
+        for (const row of result.rows) {
           const existingLotes = row.lotes.split(',').map(l => l.trim()).filter(l => l !== "");
           for (const nl of newLotes) {
             if (existingLotes.includes(nl)) {
@@ -561,38 +496,46 @@ async function startServer() {
       };
 
       if (Array.isArray(data)) {
-        await connection.beginTransaction();
-        for (const item of data) {
-          const duplicateLote = await checkDuplicate(
-            item.destajista_id, 
-            item.actividad_id, 
-            item.paquete, 
-            item.manzana, 
-            item.lotes
-          );
+        const client = await pool.connect();
+        try {
+          await client.query("BEGIN");
+          for (const item of data) {
+            const duplicateLote = await checkDuplicate(
+              item.destajista_id, 
+              item.actividad_id, 
+              item.paquete, 
+              item.manzana, 
+              item.lotes
+            );
 
-          if (duplicateLote) {
-            throw new Error(`El lote ${duplicateLote} ya fue pagado para esta actividad a este destajista.`);
+            if (duplicateLote) {
+              throw new Error(`El lote ${duplicateLote} ya fue pagado para esta actividad a este destajista.`);
+            }
+
+            await client.query(`
+              INSERT INTO capturas (destajista_id, actividad_id, paquete, manzana, lotes, semana, cantidad, usuario_nombre, usuario_avatar)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            `, [
+              item.destajista_id, 
+              item.actividad_id, 
+              item.paquete, 
+              item.manzana, 
+              item.lotes, 
+              item.semana, 
+              item.cantidad,
+              user?.name || 'Anónimo',
+              user?.avatar || '👤'
+            ]);
           }
-
-          await connection.query(`
-            INSERT INTO capturas (destajista_id, actividad_id, paquete, manzana, lotes, semana, cantidad, usuario_nombre, usuario_avatar)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `, [
-            item.destajista_id, 
-            item.actividad_id, 
-            item.paquete, 
-            item.manzana, 
-            item.lotes, 
-            item.semana, 
-            item.cantidad,
-            user?.name || 'Anónimo',
-            user?.avatar || '👤'
-          ]);
+          await client.query("COMMIT");
+          io.emit("data_changed", { type: "capturas" });
+          res.json({ success: true, count: data.length });
+        } catch (e) {
+          await client.query("ROLLBACK");
+          throw e;
+        } finally {
+          client.release();
         }
-        await connection.commit();
-        io.emit("data_changed", { type: "capturas" });
-        res.json({ success: true, count: data.length });
       } else {
         const { destajista_id, actividad_id, paquete, manzana, lotes, semana, cantidad } = data;
         
@@ -601,9 +544,10 @@ async function startServer() {
           return res.status(400).json({ error: `El lote ${duplicateLote} ya fue pagado para esta actividad a este destajista.` });
         }
 
-        const [result] = await connection.query(`
+        const result = await pool.query(`
           INSERT INTO capturas (destajista_id, actividad_id, paquete, manzana, lotes, semana, cantidad, usuario_nombre, usuario_avatar)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          RETURNING id
         `, [
           destajista_id, 
           actividad_id, 
@@ -614,21 +558,18 @@ async function startServer() {
           cantidad,
           user?.name || 'Anónimo',
           user?.avatar || '👤'
-        ]) as any;
+        ]);
         io.emit("data_changed", { type: "capturas" });
-        res.json({ id: result.insertId });
+        res.json({ id: result.rows[0].id });
       }
     } catch (error: any) {
-      if (Array.isArray(data)) await connection.rollback();
       console.error("Error saving captures:", error);
       res.status(400).json({ error: error.message });
-    } finally {
-      connection.release();
     }
   });
 
   app.delete("/api/capturas/:id", async (req, res) => {
-    await pool.query("DELETE FROM capturas WHERE id = ?", [req.params.id]);
+    await pool.query("DELETE FROM capturas WHERE id = $1", [req.params.id]);
     io.emit("data_changed", { type: "capturas" });
     res.json({ success: true });
   });

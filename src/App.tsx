@@ -3,6 +3,7 @@ import {
   LayoutDashboard, 
   FileText, 
   Users, 
+  User,
   Calendar, 
   Download, 
   LogOut, 
@@ -14,8 +15,7 @@ import {
   AlertCircle,
   Sun,
   Moon,
-  ArrowLeft,
-  User
+  ArrowLeft
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ExcelJS from 'exceljs';
@@ -138,8 +138,7 @@ export default function App() {
     const socket = io(window.location.origin, {
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
-      transports: ['polling', 'websocket'],
-      path: '/socket.io/'
+      transports: ['websocket', 'polling']
     });
 
     socket.on('connect', () => {
@@ -918,20 +917,16 @@ export default function App() {
   };
 
   const handleEnterUserManagement = () => {
-    if (user?.role === 'supervisor') {
-      setCurrentView('manage-users');
-    } else {
-      showNotification('Solicitando acceso de administrador...');
-      setShowAdminPassModal(true);
-      setAdminPassInput('');
-    }
+    setShowAdminPassModal(true);
   };
 
   const handleAdminPassSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // Simple check for the admin password seeded in server.ts
     if (adminPassInput === 'rabito31') {
-      setShowAdminPassModal(false);
       setCurrentView('manage-users');
+      setShowAdminPassModal(false);
+      setAdminPassInput('');
     } else {
       showNotification('Contraseña incorrecta', 'error');
     }
@@ -1044,8 +1039,8 @@ export default function App() {
               {users.map(u => (
                 <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-zinc-800/50">
                   <td className="p-4 flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-zinc-700 flex items-center justify-center">
-                      <User className="text-gray-500 dark:text-zinc-400" size={16} />
+                    <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-zinc-700 flex items-center justify-center overflow-hidden">
+                      <User className="text-gray-500 dark:text-zinc-400 w-6 h-6 translate-y-1" />
                     </div>
                     <span className="text-sm font-medium dark:text-zinc-200">{u.username}</span>
                   </td>
@@ -1988,8 +1983,8 @@ export default function App() {
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 mr-4 bg-gray-50 dark:bg-zinc-800 px-3 py-1.5 rounded-xl border border-gray-100 dark:border-zinc-700">
-            <div className="w-6 h-6 rounded-full bg-gray-200 dark:bg-zinc-700 flex items-center justify-center">
-              <User className="text-gray-500 dark:text-zinc-400" size={14} />
+            <div className="w-6 h-6 rounded-full bg-gray-200 dark:bg-zinc-700 flex items-center justify-center overflow-hidden">
+              <User className="text-gray-500 dark:text-zinc-400 w-4 h-4 translate-y-0.5" />
             </div>
             <div className="flex flex-col items-start leading-none">
               <span className="text-sm font-medium dark:text-zinc-200">{user.name}</span>
