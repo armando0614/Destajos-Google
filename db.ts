@@ -21,7 +21,18 @@ class MySQLAdapter implements DB {
   public isMySQL = true;
 
   constructor(config: string | mysql.PoolOptions) {
+    console.log('Creating MySQL pool...');
     this.pool = mysql.createPool(config);
+    
+    // Test connection
+    this.pool.getConnection()
+      .then(connection => {
+        console.log('Successfully connected to MySQL');
+        connection.release();
+      })
+      .catch(err => {
+        console.error('Error connecting to MySQL:', err.message);
+      });
   }
 
   async query(sql: string, params: any[] = []): Promise<any[]> {
@@ -128,8 +139,8 @@ class SQLiteAdapter implements DB {
 
 export function getDatabase(): DB {
   if (process.env.MYSQL_URL || process.env.DATABASE_URL) {
-    const url = process.env.MYSQL_URL || process.env.DATABASE_URL;
-    console.log('Connecting to MySQL...');
+    const url = (process.env.MYSQL_URL || process.env.DATABASE_URL) as string;
+    console.log('Connecting to MySQL via URL...');
     return new MySQLAdapter(url);
   } else if (process.env.MYSQLHOST) {
     console.log('Connecting to MySQL (Env Vars)...');
@@ -139,6 +150,7 @@ export function getDatabase(): DB {
       password: process.env.MYSQLPASSWORD,
       database: process.env.MYSQLDATABASE,
       port: Number(process.env.MYSQLPORT) || 3306,
+      ssl: { rejectUnauthorized: false },
       waitForConnections: true,
       connectionLimit: 10,
       queueLimit: 0

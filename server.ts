@@ -7,7 +7,7 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import cookieSession from "cookie-session";
 import dotenv from "dotenv";
-import { getDatabase } from "./db.js";
+import { getDatabase } from "./db.ts";
 
 dotenv.config();
 
@@ -15,7 +15,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Initialize Database
+console.log("Environment:", process.env.NODE_ENV || 'development');
 const db = getDatabase();
+console.log("Database type:", db.isMySQL ? "MySQL" : "SQLite");
 
 async function initDB() {
   const autoIncrement = db.isMySQL ? "INT AUTO_INCREMENT PRIMARY KEY" : "INTEGER PRIMARY KEY AUTOINCREMENT";
@@ -259,9 +261,17 @@ async function seedData() {
 }
 
 async function startServer() {
-  await initDB();
+  try {
+    console.log("Initializing database...");
+    await initDB();
+    console.log("Database initialized successfully.");
+  } catch (error) {
+    console.error("Failed to initialize database:", error);
+    // Continue starting the server so we can at least see logs/errors in the browser if possible
+  }
 
   const app = express();
+  app.set('trust proxy', 1); // Trust Railway proxy for secure cookies
   const httpServer = createHttpServer(app);
   const io = new Server(httpServer, {
     cors: {
@@ -275,8 +285,8 @@ async function startServer() {
     name: 'session',
     keys: [process.env.SESSION_SECRET || 'default-secret'],
     maxAge: 30 * 24 * 60 * 60 * 1000,
-    secure: false,
-    sameSite: 'lax',
+    secure: true, // Required for SameSite=None
+    sameSite: 'none', // Required for cross-origin iframe
     httpOnly: true
   }));
 
