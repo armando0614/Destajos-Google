@@ -7,7 +7,7 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import cookieSession from "cookie-session";
 import dotenv from "dotenv";
-import { getDatabase } from "./db.ts";
+import { getDatabase, DB } from "./db.ts";
 
 dotenv.config();
 
@@ -261,15 +261,6 @@ async function seedData() {
 }
 
 async function startServer() {
-  try {
-    console.log("Initializing database...");
-    await initDB();
-    console.log("Database initialized successfully.");
-  } catch (error) {
-    console.error("Failed to initialize database:", error);
-    // Continue starting the server so we can at least see logs/errors in the browser if possible
-  }
-
   const app = express();
   app.set('trust proxy', 1); // Trust Railway proxy for secure cookies
   const httpServer = createHttpServer(app);
@@ -281,6 +272,17 @@ async function startServer() {
   });
 
   app.use(express.json());
+  
+  // Health check route - MUST be before other middlewares to be fast
+  app.get("/api/health", (req, res) => {
+    res.json({ 
+      status: "ok", 
+      env: process.env.NODE_ENV,
+      db: db.isMySQL ? "MySQL" : "SQLite",
+      time: new Date().toISOString()
+    });
+  });
+
   app.use(cookieSession({
     name: 'session',
     keys: [process.env.SESSION_SECRET || 'default-secret'],
@@ -663,15 +665,41 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(path.join(__dirname, "dist")));
+    const distPath = path.join(__dirname, "dist");
+    const indexPath = path.join(distPath, "index.html");
+    
+    console.log(`Production mode: serving static files from ${distPath}`);
+    if (fs.existsSync(indexPath)) {
+      console.log("index.html found in dist folder.");
+    } else {
+      console.error("CRITICAL: index.html NOT found in dist folder! Build might have failed.");
+      // List files in dist to help debug
+      if (fs.existsSync(distPath)) {
+        console.log("Files in dist:", fs.readdirSync(distPath));
+      } else {
+        console.error("dist folder does not even exist!");
+      }
+    }
+
+    app.use(express.static(distPath));
     app.get("*", (req, res) => {
-      res.sendFile(path.join(__dirname, "dist", "index.html"));
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        res.status(404).send("Application not built correctly. index.html missing.");
+      }
     });
   }
 
-  const PORT = process.env.PORT || 3000;
+  const PORT = Number(process.env.PORT) || 3000;
   httpServer.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Server running on http://0.0.0.0:${PORT}`);
+    
+    // Initialize database AFTER server starts listening
+    console.log("Initializing database in background...");
+    initDB()
+      .then(() => console.log("Database initialized successfully."))
+      .catch(error => console.error("Failed to initialize database:", error));
   });
 }
 

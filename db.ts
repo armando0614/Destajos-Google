@@ -21,17 +21,34 @@ class MySQLAdapter implements DB {
   public isMySQL = true;
 
   constructor(config: string | mysql.PoolOptions) {
-    console.log('Creating MySQL pool...');
-    this.pool = mysql.createPool(config);
+    console.log('Creating MySQL pool with config type:', typeof config);
+    try {
+      if (typeof config === 'string') {
+        this.pool = mysql.createPool(config);
+      } else {
+        this.pool = mysql.createPool(config);
+      }
+      console.log('MySQL pool created.');
+    } catch (err: any) {
+      console.error('Failed to create MySQL pool:', err.message);
+      throw err;
+    }
     
     // Test connection
     this.pool.getConnection()
       .then(connection => {
-        console.log('Successfully connected to MySQL');
+        console.log('Successfully connected to MySQL and obtained a connection');
         connection.release();
       })
       .catch(err => {
-        console.error('Error connecting to MySQL:', err.message);
+        console.error('CRITICAL: Error connecting to MySQL:', err.message);
+        console.error('Connection details (masked):', typeof config === 'string' ? 'URL string' : {
+          host: (config as any).host,
+          user: (config as any).user,
+          database: (config as any).database,
+          port: (config as any).port,
+          ssl: !!(config as any).ssl
+        });
       });
   }
 
@@ -138,10 +155,16 @@ class SQLiteAdapter implements DB {
 }
 
 export function getDatabase(): DB {
-  if (process.env.MYSQL_URL || process.env.DATABASE_URL) {
-    const url = (process.env.MYSQL_URL || process.env.DATABASE_URL) as string;
+  const mysqlUrl = process.env.MYSQL_URL || process.env.DATABASE_URL;
+  if (mysqlUrl) {
     console.log('Connecting to MySQL via URL...');
-    return new MySQLAdapter(url);
+    // Try to append SSL if it's a cloud URL and doesn't have it
+    let finalUrl = mysqlUrl;
+    if (mysqlUrl.includes('railway') && !mysqlUrl.includes('ssl=')) {
+      finalUrl += (mysqlUrl.includes('?') ? '&' : '?') + 'ssl={"rejectUnauthorized":false}';
+      console.log('Appended SSL options to Railway MySQL URL');
+    }
+    return new MySQLAdapter(finalUrl);
   } else if (process.env.MYSQLHOST) {
     console.log('Connecting to MySQL (Env Vars)...');
     return new MySQLAdapter({
